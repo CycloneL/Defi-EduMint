@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useWeb3 } from '@/context/Web3Context';
-import { ethers } from 'ethers';
+import { parseEther, hexlify, toUtf8Bytes, ContractRunner } from 'ethers';
 import {
   ChartBarIcon,
   ClockIcon,
@@ -13,153 +13,162 @@ import {
   FireIcon,
   LightBulbIcon,
   PlusCircleIcon,
-  IdentificationIcon
+  IdentificationIcon,
+  UserGroupIcon,
+  CurrencyDollarIcon,
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon
 } from '@heroicons/react/24/outline';
+import Image from 'next/image';
+import { toast } from 'react-hot-toast';
 
-// 定义提案接口
-interface Proposal {
-  id: number;
-  title: string;
-  description: string;
-  status: 'active' | 'passed' | 'rejected' | 'pending';
-  creator: string;
-  createdAt: string;
-  endTime: string;
-  votesFor: number;
-  votesAgainst: number;
-  category: string;
-  timeline: { time: string; event: string }[];
-  threshold: number;
-  hasVoted: boolean;
-  voteChoice?: 'for' | 'against';
+// Proposal status enum
+enum ProposalStatus {
+  ACTIVE = 'active',
+  PASSED = 'passed',
+  REJECTED = 'rejected',
+  EXECUTED = 'executed',
+  CANCELLED = 'cancelled'
 }
 
-// 模拟提案数据
+// Proposal interface
+interface Proposal {
+  id: string;
+  title: string;
+  description: string;
+  proposer: string;
+  startTime: number;
+  endTime: number;
+  status: ProposalStatus;
+  forVotes: number;
+  againstVotes: number;
+  quorum: number;
+  minEduRequired: number;
+  link: string;
+  executionTime?: number;
+}
+
+// Vote type interface
+enum VoteType {
+  FOR = 'for',
+  AGAINST = 'against'
+}
+
+// User vote interface
+interface UserVote {
+  proposalId: string;
+  vote: VoteType;
+  votingPower: number;
+  timestamp: number;
+}
+
+// Mock proposals
 const mockProposals: Proposal[] = [
   {
-    id: 1,
-    title: '增加冷门课程流动性激励倍数',
-    description: '将冷门课程的流动性提供激励从3倍增加到5倍，以吸引更多流动性并促进平台上冷门知识的传播',
-    status: 'active',
-    creator: '0x7a9d...3e4c',
-    createdAt: '2023-05-15',
-    endTime: '2023-05-22',
-    votesFor: 2480000,
-    votesAgainst: 1120000,
-    category: '经济激励',
-    timeline: [
-      { time: '2023-05-15', event: '提案创建' },
-      { time: '2023-05-17', event: '开始投票' },
-      { time: '2023-05-22', event: '投票结束' }
-    ],
-    threshold: 3000000,
-    hasVoted: false
+    id: '1',
+    title: 'Add New DeFi Learning Course and Token',
+    description: 'Proposal to add an advanced DeFi strategies course with a corresponding course token DFI. This course will cover liquidity mining, yield optimization, and DeFi protocol risk management.',
+    proposer: '0x1234...5678',
+    startTime: Date.now() - 5 * 24 * 60 * 60 * 1000,
+    endTime: Date.now() + 2 * 24 * 60 * 60 * 1000,
+    status: ProposalStatus.ACTIVE,
+    forVotes: 125000,
+    againstVotes: 45000,
+    quorum: 200000,
+    minEduRequired: 1000,
+    link: 'https://example.com/proposal/1'
   },
   {
-    id: 2,
-    title: '调整课程代币初始质押比例',
-    description: '降低课程创建者需要提供的初始流动性池质押比例，从50%降低至30%，以降低创建者门槛',
-    status: 'active',
-    creator: '0x4b2a...9f7d',
-    createdAt: '2023-05-12',
-    endTime: '2023-05-19',
-    votesFor: 1850000,
-    votesAgainst: 1920000,
-    category: '经济激励',
-    timeline: [
-      { time: '2023-05-12', event: '提案创建' },
-      { time: '2023-05-14', event: '开始投票' },
-      { time: '2023-05-19', event: '投票结束' }
-    ],
-    threshold: 3000000,
-    hasVoted: false
+    id: '2',
+    title: 'Adjust EDU Token Mining Parameters',
+    description: 'Proposal to increase EDU mining efficiency and adjust daily mining cap to incentivize more user participation. Specifically, increase base mining rate by 15% and enhance consecutive mining reward multipliers.',
+    proposer: '0x2345...6789',
+    startTime: Date.now() - 10 * 24 * 60 * 60 * 1000,
+    endTime: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    status: ProposalStatus.PASSED,
+    forVotes: 180000,
+    againstVotes: 20000,
+    quorum: 150000,
+    minEduRequired: 500,
+    link: 'https://example.com/proposal/2',
+    executionTime: Date.now() - 2 * 24 * 60 * 60 * 1000
   },
   {
-    id: 3,
-    title: '添加新的课程类别：元宇宙开发',
-    description: '在课程分类中添加"元宇宙开发"类别，并为此类别的课程提供特殊展示位置和初始推广',
-    status: 'passed',
-    creator: '0x3c8b...2f6e',
-    createdAt: '2023-05-01',
-    endTime: '2023-05-08',
-    votesFor: 3850000,
-    votesAgainst: 950000,
-    category: '平台功能',
-    timeline: [
-      { time: '2023-05-01', event: '提案创建' },
-      { time: '2023-05-03', event: '开始投票' },
-      { time: '2023-05-08', event: '投票结束' },
-      { time: '2023-05-10', event: '提案通过' }
-    ],
-    threshold: 3000000,
-    hasVoted: true,
-    voteChoice: 'for'
+    id: '3',
+    title: 'Platform Fee Distribution Update',
+    description: 'Proposal to update the distribution mechanism for platform transaction fees: 50% to EDU stakers, 30% for buyback and burn of EDU, and 20% for platform development and operations.',
+    proposer: '0x3456...7890',
+    startTime: Date.now() - 15 * 24 * 60 * 60 * 1000,
+    endTime: Date.now() - 8 * 24 * 60 * 60 * 1000,
+    status: ProposalStatus.REJECTED,
+    forVotes: 75000,
+    againstVotes: 125000,
+    quorum: 150000,
+    minEduRequired: 1000,
+    link: 'https://example.com/proposal/3'
   },
   {
-    id: 4,
-    title: '降低交易手续费率',
-    description: '将课程代币交易的手续费从0.3%降低至0.25%，以促进更活跃的交易市场',
-    status: 'rejected',
-    creator: '0x9e4d...5a1c',
-    createdAt: '2023-04-20',
-    endTime: '2023-04-27',
-    votesFor: 1250000,
-    votesAgainst: 4350000,
-    category: '经济激励',
-    timeline: [
-      { time: '2023-04-20', event: '提案创建' },
-      { time: '2023-04-22', event: '开始投票' },
-      { time: '2023-04-27', event: '投票结束' },
-      { time: '2023-04-29', event: '提案拒绝' }
-    ],
-    threshold: 3000000,
-    hasVoted: true,
-    voteChoice: 'against'
-  },
+    id: '4',
+    title: 'Increase Governance Participation Rewards',
+    description: 'Proposal to provide additional rewards for users who actively participate in governance voting, including exclusive NFTs and additional EDU incentives to improve community engagement and governance activity.',
+    proposer: '0x4567...8901',
+    startTime: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    endTime: Date.now() + 4 * 24 * 60 * 60 * 1000,
+    status: ProposalStatus.ACTIVE,
+    forVotes: 95000,
+    againstVotes: 15000,
+    quorum: 150000,
+    minEduRequired: 800,
+    link: 'https://example.com/proposal/4'
+  }
 ];
 
-// 提案状态颜色映射
-const statusColors: Record<string, string> = {
-  active: 'text-yellow-400 bg-yellow-400/20',
-  passed: 'text-green-400 bg-green-400/20',
-  rejected: 'text-red-400 bg-red-400/20',
-  pending: 'text-gray-400 bg-gray-400/20'
-};
-
-// 提案状态文字映射
-const statusText: Record<string, string> = {
-  active: '进行中',
-  passed: '已通过',
-  rejected: '已拒绝',
-  pending: '待审核'
-};
+// Mock user votes
+const mockUserVotes: UserVote[] = [
+  {
+    proposalId: '1',
+    vote: VoteType.FOR,
+    votingPower: 2500,
+    timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000
+  }
+];
 
 export default function GovernancePage() {
-  const { connected, account, signer } = useWeb3();
-  const [eduBalance, setEduBalance] = useState('1000'); // 模拟EDU余额
-  const [votingPower, setVotingPower] = useState(1000); // 模拟投票权重
-  const [proposals, setProposals] = useState<Proposal[]>(mockProposals);
-  const [activeTab, setActiveTab] = useState('all');
+  const { isConnected, walletAddress } = useWeb3();
+  const [isLoading, setIsLoading] = useState(true);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [userVotes, setUserVotes] = useState<UserVote[]>([]);
+  const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
+  const [voteAmount, setVoteAmount] = useState<string>('');
+  const [selectedVoteType, setSelectedVoteType] = useState<VoteType>(VoteType.FOR);
+  const [votingPower, setVotingPower] = useState<number>(0);
+  const [showVotingModal, setShowVotingModal] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'closed'>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [votingLoading, setVotingLoading] = useState(false);
   const [votingSuccess, setVotingSuccess] = useState(false);
+  const [showProposalDetails, setShowProposalDetails] = useState(false);
+  const [selectedProposalDetails, setSelectedProposalDetails] = useState<Proposal | null>(null);
   
-  // 表单状态
+  // 使用与原代码匹配的newProposal结构
   const [newProposal, setNewProposal] = useState({
     title: '',
     description: '',
     category: '',
-    durationDays: '7'
+    durationDays: '7',
+    minEduRequired: 1000,
+    stakeAmount: ''
   });
   
-  // 提案创建加载状态
-  const [creatingProposal, setCreatingProposal] = useState(false);
-  const [proposalCreated, setProposalCreated] = useState(false);
-  
-  // 过滤提案
-  const filteredProposals = proposals.filter(
-    proposal => activeTab === 'all' || proposal.status === activeTab
-  );
+  // Filter proposals based on tab
+  const filteredProposals = proposals.filter(proposal => {
+    if (activeTab === 'all') return true;
+    if (activeTab === 'active') 
+      return proposal.status === ProposalStatus.ACTIVE;
+    if (activeTab === 'closed')
+      return proposal.status !== ProposalStatus.ACTIVE;
+    return true;
+  });
   
   // 计算投票进度
   const calculateProgress = (votesFor: number, votesAgainst: number) => {
@@ -169,11 +178,10 @@ export default function GovernancePage() {
   };
   
   // 计算剩余时间
-  const calculateTimeRemaining = (endTime: string) => {
-    const end = new Date(endTime).getTime();
-    const now = new Date().getTime();
+  const calculateTimeRemaining = (endTime: number) => {
+    const now = Date.now();
+    const diff = endTime - now;
     
-    const diff = end - now;
     if (diff <= 0) return '已结束';
     
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -183,553 +191,825 @@ export default function GovernancePage() {
   };
   
   // 投票
-  const vote = async (proposalId: number, voteFor: boolean) => {
-    if (!connected) {
-      alert('请先连接钱包');
+  const vote = async (proposalId: string, voteFor: boolean) => {
+    if (!walletAddress || !signer) {
+      toast.error("Please connect your wallet to vote");
       return;
     }
     
-    if (!account || !signer) {
-      alert('钱包未正确连接');
+    if (!isConnected) {
+      toast.error("Please switch to the correct network");
       return;
     }
-    
-    setVotingLoading(true);
     
     try {
-      // 检查是否有足够的EDU余额
-      if (parseFloat(eduBalance) < 100) {
-        throw new Error('您需要至少100 EDU代币才能投票');
+      setVotingLoading(true);
+      
+      // This is a mock implementation. In a real app, you would call a voting contract function
+      if (signer && typeof signer.sendTransaction === 'function') {
+        const tx = await signer.sendTransaction({
+          to: walletAddress,
+          value: parseEther("0"), // Zero value transaction
+          data: hexlify(toUtf8Bytes(
+            `Vote ${voteFor ? 'FOR' : 'AGAINST'} on Proposal #${proposalId}`
+          ))
+        });
+        
+        await tx.wait(1);
+        
+        // Record the vote in our mock data
+        const newVote: UserVote = {
+          proposalId,
+          vote: voteFor ? VoteType.FOR : VoteType.AGAINST,
+          votingPower: 10, // Simulate 10 votes based on token holdings
+          timestamp: Date.now()
+        };
+        
+        setUserVotes(prev => [...prev, newVote]);
+        
+        // Update proposal in our mock data
+        setProposals(prev => prev.map(p => {
+          if (p.id === proposalId) {
+            return {
+              ...p,
+              forVotes: voteFor ? p.forVotes + 10 : p.forVotes,
+              againstVotes: voteFor ? p.againstVotes : p.againstVotes + 10
+            };
+          }
+          return p;
+        }));
+        
+        toast.success(`Your vote has been recorded for Proposal #${proposalId}`);
+        setShowVotingModal(false);
+      } else {
+        toast.error("Transaction signer not available. Please try again later.");
       }
-      
-      console.log(`为提案 ${proposalId} 投票: ${voteFor ? '支持' : '反对'}`);
-      
-      // 触发钱包签名交易
-      const tx = await signer.sendTransaction({
-        to: account,
-        value: ethers.utils.parseEther("0"), // 零值交易
-        data: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(
-          `Vote ${voteFor ? 'FOR' : 'AGAINST'} on Proposal #${proposalId}`
-        ))
-      });
-      
-      console.log("投票交易已提交:", tx.hash);
-      await tx.wait();
-      
-      // 更新提案的投票数
-      const updatedProposals = proposals.map(proposal => {
-        if (proposal.id === proposalId) {
-          return {
-            ...proposal,
-            votesFor: voteFor ? proposal.votesFor + votingPower : proposal.votesFor,
-            votesAgainst: voteFor ? proposal.votesAgainst : proposal.votesAgainst + votingPower,
-            hasVoted: true,
-            voteChoice: voteFor ? 'for' : 'against' as 'for' | 'against'
-          };
-        }
-        return proposal;
-      });
-      
-      setProposals(updatedProposals);
-      setVotingSuccess(true);
-      
-      setTimeout(() => {
-        setVotingSuccess(false);
-      }, 3000);
-      
     } catch (error: any) {
-      console.error('投票失败:', error);
-      alert(`投票失败: ${error.message || '未知错误'}`);
+      console.error("Voting error:", error);
+      toast.error(`Failed to submit vote: ${error.message}`);
     } finally {
       setVotingLoading(false);
     }
   };
   
-  // 创建提案
+  // Create proposal
   const createProposal = async () => {
-    if (!connected) {
-      alert('请先连接钱包');
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
       return;
     }
     
-    if (!account || !signer) {
-      alert('钱包未正确连接');
+    if (!newProposal.title || !newProposal.description) {
+      toast.error('Please fill in all the required fields');
       return;
     }
     
-    if (!newProposal.title || !newProposal.description || !newProposal.category) {
-      alert('请填写所有必填字段');
+    const duration = parseFloat(newProposal.durationDays);
+    if (isNaN(duration) || duration <= 0) {
+      toast.error('Please enter a valid duration');
       return;
     }
     
-    setCreatingProposal(true);
+    const stake = parseFloat(newProposal.stakeAmount);
+    if (isNaN(stake) || stake <= 0) {
+      toast.error('Please enter a valid stake amount');
+      return;
+    }
     
-    try {
-      // 检查是否有足够的EDU余额
-      if (parseFloat(eduBalance) < 500) {
-        throw new Error('您需要至少500 EDU代币才能创建提案');
+    if (stake < newProposal.minEduRequired * 0.1) {
+      toast.error(`Stake amount must be at least ${newProposal.minEduRequired * 0.1} EDU (10% of minimum required)`);
+      return;
+    }
+    
+    if (stake > votingPower) {
+      toast.error('Stake amount cannot exceed your voting power');
+      return;
+    }
+    
+    // In a real app, this would call the blockchain
+    toast.promise(
+      new Promise((resolve) => {
+        setTimeout(() => {
+          // Create new proposal
+          const newProposalData: Proposal = {
+            id: (proposals.length + 1).toString(),
+            title: newProposal.title,
+            description: newProposal.description,
+            status: ProposalStatus.ACTIVE,
+            proposer: walletAddress || '0x0000...0000',
+            startTime: Date.now(),
+            endTime: Date.now() + (duration * 24 * 60 * 60 * 1000),
+            forVotes: stake, // Creator's stake counts as "for" votes
+            againstVotes: 0,
+            quorum: newProposal.minEduRequired * 10,
+            minEduRequired: newProposal.minEduRequired,
+            link: `https://example.com/proposal/${proposals.length + 1}`
+          };
+          
+          // Add new proposal
+          setProposals([newProposalData, ...proposals]);
+          
+          // Record creator's vote
+          const creatorVote: UserVote = {
+            proposalId: newProposalData.id,
+            vote: VoteType.FOR,
+            votingPower: stake,
+            timestamp: Date.now()
+          };
+          setUserVotes([...userVotes, creatorVote]);
+          
+          // Update voting power
+          setVotingPower(votingPower - stake);
+          
+          // Reset form
+          setNewProposal({
+            title: '',
+            description: '',
+            category: '',
+            durationDays: '7',
+            minEduRequired: 1000,
+            stakeAmount: ''
+          });
+          
+          // Close modal
+          setShowCreateModal(false);
+          
+          resolve(true);
+        }, 2000);
+      }),
+      {
+        loading: 'Creating proposal...',
+        success: 'Proposal created successfully!',
+        error: 'Failed to create proposal. Please try again.',
       }
-      
-      // 触发钱包签名交易
-      const tx = await signer.sendTransaction({
-        to: account,
-        value: ethers.utils.parseEther("0"), // 零值交易
-        data: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(
-          `Create Proposal: ${newProposal.title}`
-        ))
-      });
-      
-      console.log("创建提案交易已提交:", tx.hash);
-      await tx.wait();
-      
-      // 创建新提案
-      const now = new Date();
-      const endDate = new Date(now);
-      endDate.setDate(now.getDate() + parseInt(newProposal.durationDays));
-      
-      const newProposalData: Proposal = {
-        id: proposals.length + 1,
-        title: newProposal.title,
-        description: newProposal.description,
-        status: 'pending',
-        creator: account.substring(0, 6) + '...' + account.substring(account.length - 4),
-        createdAt: now.toISOString(),
-        endTime: endDate.toISOString(),
-        votesFor: 0,
-        votesAgainst: 0,
-        category: newProposal.category,
-        timeline: [
-          { time: now.toLocaleDateString(), event: '提案创建' },
-          { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toLocaleDateString(), event: '开始投票' }
-        ],
-        threshold: 3000,
-        hasVoted: false
-      };
-      
-      setProposals([newProposalData, ...proposals]);
-      setProposalCreated(true);
-      
-      // 重置表单
-      setNewProposal({
-        title: '',
-        description: '',
-        category: '',
-        durationDays: '7'
-      });
-      
-      setTimeout(() => {
-        setProposalCreated(false);
-        setShowCreateModal(false);
-      }, 3000);
-      
-    } catch (error: any) {
-      console.error('创建提案失败:', error);
-      alert(`创建提案失败: ${error.message || '未知错误'}`);
-    } finally {
-      setCreatingProposal(false);
-    }
+    );
   };
   
+  // Load governance data
+  useEffect(() => {
+    const loadGovernanceData = async () => {
+      try {
+        // In a real app, this would fetch from the blockchain
+        setTimeout(() => {
+          setProposals(mockProposals);
+          setUserVotes(mockUserVotes);
+          setVotingPower(isConnected ? 5000 : 0); // Mock voting power based on EDU balance
+          setIsLoading(false);
+        }, 1000);
+      } catch (error) {
+        console.error('Error loading governance data:', error);
+        toast.error('Failed to load governance data');
+        setIsLoading(false);
+      }
+    };
+    
+    loadGovernanceData();
+    
+    return () => {
+      // Cleanup if needed
+    };
+  }, [isConnected]);
+
+  // Check if user has voted on a proposal
+  const hasVoted = (proposalId: string) => {
+    return userVotes.some(vote => vote.proposalId === proposalId);
+  };
+
+  // Get user vote for a proposal
+  const getUserVote = (proposalId: string) => {
+    return userVotes.find(vote => vote.proposalId === proposalId);
+  };
+
+  // Calculate vote percentage
+  const calculateVotePercentage = (proposal: Proposal) => {
+    const total = proposal.forVotes + proposal.againstVotes;
+    if (total === 0) return { for: 0, against: 0 };
+    
+    return {
+      for: (proposal.forVotes / total) * 100,
+      against: (proposal.againstVotes / total) * 100
+    };
+  };
+
+  // Open voting modal
+  const openVotingModal = (proposal: Proposal) => {
+    if (!isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    
+    if (votingPower < proposal.minEduRequired) {
+      toast.error(`You need at least ${proposal.minEduRequired} EDU to vote`);
+      return;
+    }
+    
+    if (hasVoted(proposal.id)) {
+      toast.error('You have already voted on this proposal');
+      return;
+    }
+    
+    setSelectedProposal(proposal);
+    setVoteAmount('');
+    setSelectedVoteType(VoteType.FOR);
+    setShowVotingModal(true);
+  };
+
+  // Handle vote submission
+  const handleVoteSubmit = () => {
+    if (!selectedProposal) return;
+    
+    const amount = parseFloat(voteAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid voting amount');
+      return;
+    }
+    
+    if (amount > votingPower) {
+      toast.error('Voting amount cannot exceed your voting power');
+      return;
+    }
+    
+    // In a real app, this would call the blockchain
+    toast.promise(
+      new Promise((resolve) => {
+        setTimeout(() => {
+          // Create new vote
+          const newVote: UserVote = {
+            proposalId: selectedProposal.id,
+            vote: selectedVoteType,
+            votingPower: amount,
+            timestamp: Date.now()
+          };
+          
+          // Update proposals
+          setProposals(proposals.map(p => {
+            if (p.id === selectedProposal.id) {
+              return {
+                ...p,
+                forVotes: selectedVoteType === VoteType.FOR ? p.forVotes + amount : p.forVotes,
+                againstVotes: selectedVoteType === VoteType.AGAINST ? p.againstVotes + amount : p.againstVotes
+              };
+            }
+            return p;
+          }));
+          
+          // Update user votes
+          setUserVotes([...userVotes, newVote]);
+          
+          // Update voting power
+          setVotingPower(votingPower - amount);
+          
+          // Close modal
+          setShowVotingModal(false);
+          
+          resolve(true);
+        }, 2000);
+      }),
+      {
+        loading: 'Submitting vote...',
+        success: 'Vote submitted successfully!',
+        error: 'Failed to submit vote. Please try again.',
+      }
+    );
+  };
+
+  // Format number with commas
+  const formatNumber = (num: number) => {
+    return num.toLocaleString();
+  };
+
+  // Format address
+  const formatAddress = (address: string) => {
+    if (!address) return '';
+    return address.length > 10 ? `${address.substring(0, 6)}...${address.substring(address.length - 4)}` : address;
+  };
+
+  // View proposal details
+  const viewProposalDetails = (proposal: Proposal) => {
+    setSelectedProposalDetails(proposal);
+    setShowProposalDetails(true);
+  };
+
+  // Close proposal details
+  const closeProposalDetails = () => {
+    setSelectedProposalDetails(null);
+    setShowProposalDetails(false);
+  };
+
   return (
     <div className="min-h-screen">
-      <div className="container mx-auto pt-24 pb-12 px-4">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2 gradient-text">去中心化治理</h1>
-          <p className="text-gray-400">参与提案投票，塑造教育DAO的未来</p>
-        </div>
+      <div className="container mx-auto pt-24 pb-16 px-4">
+        {/* Page Header */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-12"
+        >
+          <h1 className="text-4xl font-bold mb-4 gradient-text">Governance Center</h1>
+          <p className="text-xl text-gray-400">Participate in community governance to shape the future</p>
+        </motion.div>
         
-        {connected ? (
-          <>
-            {/* 用户信息卡片 */}
-            <div className="glass rounded-xl p-6 mb-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">您的治理概况</h3>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">EDU余额</span>
-                      <span className="font-medium">{eduBalance} EDU</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">投票权重</span>
-                      <span className="font-medium">{votingPower} 票</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">已参与投票</span>
-                      <span className="font-medium">{proposals.filter(p => p.hasVoted).length} 次</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">治理参与</h3>
-                  <div className="space-y-2">
-                    <p className="text-sm text-gray-400">作为EDU代币持有者，您可以对平台的重要决策进行投票，包括协议升级、资金分配和规则变更。</p>
-                    <div className="text-xs text-gray-500">
-                      每100 EDU = 100投票权重
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex flex-col justify-center items-center">
+        {/* Governance Stats */}
+        {isConnected && !isLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"
+          >
+            <div className="glass p-6 rounded-xl">
+              <div className="flex justify-between items-center">
+                <h3 className="text-gray-400 font-medium">My Voting Power</h3>
+                <CurrencyDollarIcon className="h-5 w-5 text-indigo-400" />
+              </div>
+              <p className="text-2xl font-bold mt-2">{formatNumber(votingPower)} EDU</p>
+              <p className="text-sm text-gray-500 mt-1">Based on your current EDU balance</p>
+            </div>
+            
+            <div className="glass p-6 rounded-xl">
+              <div className="flex justify-between items-center">
+                <h3 className="text-gray-400 font-medium">My Votes</h3>
+                <DocumentTextIcon className="h-5 w-5 text-indigo-400" />
+              </div>
+              <p className="text-2xl font-bold mt-2">{userVotes.length}</p>
+              <p className="text-sm text-gray-500 mt-1">Number of proposals voted</p>
+            </div>
+            
+            <div className="glass p-6 rounded-xl">
+              <div className="flex justify-between items-center">
+                <h3 className="text-gray-400 font-medium">Active Proposals</h3>
+                <ChartBarIcon className="h-5 w-5 text-indigo-400" />
+              </div>
+              <p className="text-2xl font-bold mt-2">
+                {proposals.filter(p => p.status === ProposalStatus.ACTIVE).length}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">Proposals needing your vote</p>
+            </div>
+          </motion.div>
+        )}
+        
+        {/* Main Content */}
+        <div className="flex flex-col space-y-8">
+          {isLoading ? (
+            <div className="glass rounded-xl p-8 text-center">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mb-4"></div>
+              <p className="text-gray-400">Loading governance data...</p>
+            </div>
+          ) : !isConnected ? (
+            <div className="glass rounded-xl p-8 text-center">
+              <h3 className="text-xl font-medium mb-4">Connect Your Wallet</h3>
+              <p className="text-gray-400 mb-6">Connect your wallet to participate in governance</p>
+            </div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="glass rounded-xl overflow-hidden"
+            >
+              {/* Tabs and Create Proposal Button */}
+              <div className="flex justify-between items-center border-b border-gray-800 px-4">
+                <div className="flex">
                   <button
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-3 px-6 font-medium w-full md:w-auto"
-                    onClick={() => setShowCreateModal(true)}
+                    className={`px-6 py-4 text-sm font-medium ${
+                      activeTab === 'all' 
+                        ? 'text-white border-b-2 border-indigo-500' 
+                        : 'text-gray-400 hover:text-gray-300'
+                    }`}
+                    onClick={() => setActiveTab('all')}
                   >
-                    <span className="flex items-center justify-center">
-                      <PlusCircleIcon className="h-5 w-5 mr-2" />
-                      创建提案
-                    </span>
+                    All Proposals
                   </button>
-                  <p className="text-xs text-gray-500 mt-2">
-                    至少需要500 EDU才能创建提案
-                  </p>
+                  <button
+                    className={`px-6 py-4 text-sm font-medium ${
+                      activeTab === 'active' 
+                        ? 'text-white border-b-2 border-indigo-500' 
+                        : 'text-gray-400 hover:text-gray-300'
+                    }`}
+                    onClick={() => setActiveTab('active')}
+                  >
+                    Active
+                  </button>
+                  <button
+                    className={`px-6 py-4 text-sm font-medium ${
+                      activeTab === 'closed' 
+                        ? 'text-white border-b-2 border-indigo-500' 
+                        : 'text-gray-400 hover:text-gray-300'
+                    }`}
+                    onClick={() => setActiveTab('closed')}
+                  >
+                    Closed
+                  </button>
                 </div>
+                
+                <button
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm mr-4"
+                  onClick={() => setShowCreateModal(true)}
+                >
+                  Create Proposal
+                </button>
               </div>
-            </div>
-            
-            {/* 创建提案模态框 */}
-            {showCreateModal && (
-              <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
-                <div className="glass rounded-xl p-6 w-full max-w-2xl">
-                  <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold">创建治理提案</h2>
-                    <button 
-                      className="text-gray-400 hover:text-white"
-                      onClick={() => setShowCreateModal(false)}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+              
+              {/* Proposals List */}
+              <div className="divide-y divide-gray-800">
+                {filteredProposals.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <p className="text-gray-400">No proposals found</p>
                   </div>
-                  
-                  <div className="space-y-4 mb-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">提案标题</label>
-                      <input
-                        type="text"
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        placeholder="输入提案标题"
-                        value={newProposal.title}
-                        onChange={(e) => setNewProposal({...newProposal, title: e.target.value})}
-                      />
-                    </div>
+                ) : (
+                  filteredProposals.map((proposal) => {
+                    const percentages = calculateVotePercentage(proposal);
+                    const userVote = getUserVote(proposal.id);
                     
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">提案描述</label>
-                      <textarea
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        placeholder="详细描述您的提案内容和目的"
-                        rows={5}
-                        value={newProposal.description}
-                        onChange={(e) => setNewProposal({...newProposal, description: e.target.value})}
-                      />
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">提案分类</label>
-                        <select
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          value={newProposal.category}
-                          onChange={(e) => setNewProposal({...newProposal, category: e.target.value})}
-                        >
-                          <option value="" className="bg-gray-800">选择分类</option>
-                          <option value="平台治理" className="bg-gray-800">平台治理</option>
-                          <option value="代币经济" className="bg-gray-800">代币经济</option>
-                          <option value="财务" className="bg-gray-800">财务</option>
-                          <option value="激励机制" className="bg-gray-800">激励机制</option>
-                          <option value="技术升级" className="bg-gray-800">技术升级</option>
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">投票持续时间</label>
-                        <select
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          value={newProposal.durationDays}
-                          onChange={(e) => setNewProposal({...newProposal, durationDays: e.target.value})}
-                        >
-                          <option value="3" className="bg-gray-800">3天</option>
-                          <option value="7" className="bg-gray-800">7天</option>
-                          <option value="14" className="bg-gray-800">14天</option>
-                          <option value="30" className="bg-gray-800">30天</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-indigo-900/20 border border-indigo-800 rounded-lg p-4 mb-6">
-                    <h4 className="font-medium flex items-center mb-2">
-                      <IdentificationIcon className="h-5 w-5 mr-2 text-indigo-400" />
-                      提案要求
-                    </h4>
-                    <div className="text-sm text-gray-300 space-y-1">
-                      <p>创建提案需要质押500 EDU代币</p>
-                      <p>通过阈值：总投票的50%以上支持</p>
-                      <p>执行时间：投票结束后24小时内</p>
-                    </div>
-                  </div>
-                  
-                  {proposalCreated && (
-                    <div className="mb-4 bg-green-600/20 border border-green-500 text-green-400 rounded-lg p-3 text-center">
-                      提案创建成功！它将在审核后显示在提案列表中。
-                    </div>
-                  )}
-                  
-                  <div className="flex justify-end space-x-4">
-                    <button
-                      className="px-4 py-2 border border-gray-700 hover:bg-gray-800 rounded-lg text-gray-300"
-                      onClick={() => setShowCreateModal(false)}
-                    >
-                      取消
-                    </button>
-                    
-                    <button
-                      className={`px-6 py-2 rounded-lg font-medium ${
-                        creatingProposal || parseFloat(eduBalance) < 500
-                          ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                          : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white'
-                      }`}
-                      onClick={createProposal}
-                      disabled={creatingProposal || parseFloat(eduBalance) < 500}
-                    >
-                      {creatingProposal ? (
-                        <span className="flex items-center">
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          处理中...
-                        </span>
-                      ) : parseFloat(eduBalance) < 500 ? (
-                        'EDU余额不足'
-                      ) : (
-                        '提交提案'
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* 提案过滤标签 */}
-            <div className="flex border-b border-gray-700 mb-6">
-              <button
-                className={`px-4 py-2 font-medium ${activeTab === 'all' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}
-                onClick={() => setActiveTab('all')}
-              >
-                全部提案
-              </button>
-              <button
-                className={`px-4 py-2 font-medium ${activeTab === 'active' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}
-                onClick={() => setActiveTab('active')}
-              >
-                进行中
-              </button>
-              <button
-                className={`px-4 py-2 font-medium ${activeTab === 'pending' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}
-                onClick={() => setActiveTab('pending')}
-              >
-                待投票
-              </button>
-              <button
-                className={`px-4 py-2 font-medium ${activeTab === 'passed' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}
-                onClick={() => setActiveTab('passed')}
-              >
-                已通过
-              </button>
-              <button
-                className={`px-4 py-2 font-medium ${activeTab === 'rejected' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400 hover:text-gray-300'}`}
-                onClick={() => setActiveTab('rejected')}
-              >
-                已拒绝
-              </button>
-            </div>
-            
-            {/* 提案列表 */}
-            <div className="space-y-6">
-              {filteredProposals.length === 0 ? (
-                <div className="glass rounded-xl p-8 text-center">
-                  <p className="text-gray-400">暂无相关提案</p>
-                </div>
-              ) : (
-                filteredProposals.map((proposal) => (
-                  <div key={proposal.id} className="glass rounded-xl overflow-hidden">
-                    <div className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h3 className="text-xl font-bold mb-2">{proposal.title}</h3>
-                          <div className="flex items-center text-sm space-x-4">
-                            <span className="text-gray-400">提案 #{proposal.id}</span>
-                            <span className="text-gray-400">由 {proposal.creator} 创建</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span className={`px-3 py-1 text-sm rounded-full ${
-                            proposal.status === 'active' ? 'bg-indigo-900/30 text-indigo-400' :
-                            proposal.status === 'passed' ? 'bg-green-900/30 text-green-400' :
-                            proposal.status === 'rejected' ? 'bg-red-900/30 text-red-400' :
-                            'bg-yellow-900/30 text-yellow-400'
-                          }`}>
-                            {proposal.status === 'active' ? '进行中' :
-                             proposal.status === 'passed' ? '已通过' :
-                             proposal.status === 'rejected' ? '已拒绝' : '待投票'}
-                          </span>
-                          <span className="bg-gray-800 px-3 py-1 text-sm rounded-full">
-                            {proposal.category}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <p className="text-gray-300 mb-6">{proposal.description}</p>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                        <div className="bg-gray-800/50 rounded-lg p-4">
-                          <div className="flex justify-between mb-2">
-                            <span className="text-gray-400">投票进度</span>
-                            <span>{proposal.votesFor} / {proposal.threshold}</span>
-                          </div>
-                          <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-                            <div 
-                              className="bg-indigo-600 h-2 rounded-full" 
-                              style={{ width: `${Math.min(100, (proposal.votesFor / proposal.threshold) * 100)}%` }}
-                            ></div>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-400">目标</span>
-                            <span>{proposal.threshold} 票</span>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-gray-800/50 rounded-lg p-4">
-                          <div className="flex justify-between mb-2">
-                            <span className="text-gray-400">当前投票</span>
-                            <span>{proposal.votesFor + proposal.votesAgainst} 票已投</span>
-                          </div>
-                          <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-                            <div 
-                              className="bg-gradient-to-r from-green-500 to-red-500 h-2 rounded-full" 
-                            >
-                              <div 
-                                className="bg-green-500 h-2 rounded-full" 
-                                style={{ width: `${calculateProgress(proposal.votesFor, proposal.votesAgainst)}%` }}
-                              ></div>
+                    return (
+                      <div key={proposal.id} className="p-6 hover:bg-gray-800/30 transition-colors border border-gray-800/50 rounded-lg m-4">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <h3 
+                                className="text-xl font-medium cursor-pointer hover:text-indigo-400"
+                                onClick={() => viewProposalDetails(proposal)}
+                              >
+                                {proposal.title}
+                              </h3>
+                              {proposal.status === ProposalStatus.ACTIVE && 
+                                <span className="px-2 py-1 text-xs rounded-full bg-blue-500/20 text-blue-400">Active</span>}
+                              {proposal.status === ProposalStatus.PASSED && 
+                                <span className="px-2 py-1 text-xs rounded-full bg-green-500/20 text-green-400">Passed</span>}
+                              {proposal.status === ProposalStatus.REJECTED && 
+                                <span className="px-2 py-1 text-xs rounded-full bg-red-500/20 text-red-400">Rejected</span>}
+                              {proposal.status === ProposalStatus.EXECUTED && 
+                                <span className="px-2 py-1 text-xs rounded-full bg-purple-500/20 text-purple-400">Executed</span>}
+                              {proposal.status === ProposalStatus.CANCELLED && 
+                                <span className="px-2 py-1 text-xs rounded-full bg-gray-500/20 text-gray-400">Cancelled</span>}
                             </div>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-green-400">{proposal.votesFor} 票支持</span>
-                            <span className="text-red-400">{proposal.votesAgainst} 票反对</span>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-gray-800/50 rounded-lg p-4">
-                          <div className="flex items-center mb-2">
-                            <ClockIcon className="h-4 w-4 text-gray-400 mr-1" />
-                            <span className="text-gray-400">时间信息</span>
+                            <div className="flex items-center text-sm text-gray-400 gap-4">
+                              <span className="flex items-center">
+                                <UserGroupIcon className="h-4 w-4 mr-1" />
+                                Proposed by {formatAddress(proposal.proposer)}
+                              </span>
+                              {proposal.status === ProposalStatus.ACTIVE && (
+                                <span className="flex items-center">
+                                  <ClockIcon className="h-4 w-4 mr-1" />
+                                  {calculateTimeRemaining(proposal.endTime)}
+                                </span>
+                              )}
+                              {proposal.status === ProposalStatus.PASSED && proposal.executionTime && (
+                                <span className="flex items-center">
+                                  <CheckCircleIcon className="h-4 w-4 mr-1" />
+                                  Executed on {new Date(proposal.executionTime).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                              <span>创建时间</span>
-                              <span>{new Date(proposal.createdAt).toLocaleDateString()}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>结束时间</span>
-                              <span>{new Date(proposal.endTime).toLocaleDateString()}</span>
-                            </div>
-                            {proposal.status === 'active' && (
-                              <div className="flex justify-between font-medium">
-                                <span>剩余时间</span>
-                                <span>{calculateTimeRemaining(proposal.endTime)}</span>
+                          <div className="mt-4 md:mt-0 flex items-center gap-3">
+                            {userVote && (
+                              <div className={`px-3 py-1 rounded-full text-sm ${
+                                userVote.vote === VoteType.FOR 
+                                  ? 'bg-green-500/20 text-green-400' 
+                                  : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                Voted {userVote.vote === VoteType.FOR ? 'For' : 'Against'}
                               </div>
                             )}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* 投票按钮 */}
-                      {(proposal.status === 'active' || proposal.status === 'pending') && !proposal.hasVoted && (
-                        <div className="mt-4">
-                          {votingSuccess && (
-                            <div className="mb-4 bg-green-600/20 border border-green-500 text-green-400 rounded-lg p-3 text-center">
-                              投票成功提交！您的选择已记录。
-                            </div>
-                          )}
-                          
-                          <div className="flex space-x-4">
-                            <button 
-                              className={`flex-1 py-3 rounded-lg font-medium ${
-                                votingLoading 
-                                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                                  : 'bg-green-600/20 border border-green-500 text-green-400 hover:bg-green-600/30'
-                              }`}
-                              onClick={() => vote(proposal.id, true)}
-                              disabled={votingLoading}
-                            >
-                              <span className="flex items-center justify-center">
-                                <CheckCircleIcon className="h-5 w-5 mr-2" />
-                                支持
-                              </span>
-                            </button>
                             
-                            <button 
-                              className={`flex-1 py-3 rounded-lg font-medium ${
-                                votingLoading 
-                                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                                  : 'bg-red-600/20 border border-red-500 text-red-400 hover:bg-red-600/30'
-                              }`}
-                              onClick={() => vote(proposal.id, false)}
-                              disabled={votingLoading}
+                            {proposal.status === ProposalStatus.ACTIVE && !hasVoted(proposal.id) && (
+                              <button
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm"
+                                onClick={() => openVotingModal(proposal)}
+                              >
+                                Vote
+                              </button>
+                            )}
+                            
+                            <button
+                              className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
+                              onClick={() => viewProposalDetails(proposal)}
                             >
-                              <span className="flex items-center justify-center">
-                                <XCircleIcon className="h-5 w-5 mr-2" />
-                                反对
-                              </span>
+                              <ArrowTopRightOnSquareIcon className="h-5 w-5 text-gray-400" />
                             </button>
                           </div>
                         </div>
-                      )}
-                      
-                      {/* 已投票状态 */}
-                      {proposal.hasVoted && (
-                        <div className="mt-4 bg-indigo-900/20 border border-indigo-800 rounded-lg p-4 flex items-center justify-center">
-                          <span className="flex items-center text-indigo-400">
-                            <CheckCircleIcon className="h-5 w-5 mr-2" />
-                            您已投票：{proposal.voteChoice === 'for' ? '支持' : '反对'}
+                        
+                        <p className="text-gray-400 text-sm mb-4 line-clamp-2">
+                          {proposal.description}
+                        </p>
+                        
+                        {/* Voting Statistics */}
+                        <div className="mb-2">
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="text-green-400">
+                              For: {formatNumber(proposal.forVotes)} EDU ({percentages.for.toFixed(1)}%)
+                            </span>
+                            <span className="text-red-400">
+                              Against: {formatNumber(proposal.againstVotes)} EDU ({percentages.against.toFixed(1)}%)
+                            </span>
+                          </div>
+                          
+                          <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-green-500 to-green-400"
+                              style={{ width: `${percentages.for}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>
+                            Quorum: {formatNumber(proposal.quorum)} EDU
+                          </span>
+                          <span>
+                            Minimum Required: {formatNumber(proposal.minEduRequired)} EDU
                           </span>
                         </div>
-                      )}
-                    </div>
-                    
-                    {/* 提案时间线 */}
-                    <div className="bg-gray-800/50 p-4">
-                      <h4 className="font-medium mb-4">提案时间线</h4>
-                      <div className="flex space-x-8">
-                        {proposal.timeline.map((item, index) => (
-                          <div key={index} className="flex items-center">
-                            <div className="w-3 h-3 rounded-full bg-indigo-500 mr-2"></div>
-                            <div>
-                              <div className="text-sm">{item.event}</div>
-                              <div className="text-xs text-gray-400">{item.time}</div>
-                            </div>
-                          </div>
-                        ))}
                       </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </div>
+      
+      {/* Voting Modal */}
+      {showVotingModal && selectedProposal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="glass rounded-xl max-w-md w-full p-6">
+            <h3 className="text-xl font-medium mb-4">Vote: {selectedProposal.title}</h3>
+            
+            <div className="mb-6">
+              <div className="text-sm text-gray-400 mb-2">Vote Type</div>
+              <div className="flex space-x-3">
+                <button 
+                  className={`flex-1 py-3 rounded-lg ${
+                    selectedVoteType === VoteType.FOR 
+                      ? 'bg-green-600' 
+                      : 'bg-gray-700 hover:bg-gray-600'
+                  }`}
+                  onClick={() => setSelectedVoteType(VoteType.FOR)}
+                >
+                  For
+                </button>
+                <button 
+                  className={`flex-1 py-3 rounded-lg ${
+                    selectedVoteType === VoteType.AGAINST 
+                      ? 'bg-red-600' 
+                      : 'bg-gray-700 hover:bg-gray-600'
+                  }`}
+                  onClick={() => setSelectedVoteType(VoteType.AGAINST)}
+                >
+                  Against
+                </button>
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <div className="text-sm text-gray-400 mb-2">Voting Amount</div>
+              <div className="relative">
+                <input
+                  type="text"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+                  placeholder="Enter EDU amount"
+                  value={voteAmount}
+                  onChange={(e) => setVoteAmount(e.target.value)}
+                />
+                <button
+                  className="absolute right-2 top-2 px-2 py-1 bg-gray-700 rounded-md text-xs hover:bg-gray-600"
+                  onClick={() => setVoteAmount(votingPower.toString())}
+                >
+                  Max
+                </button>
+              </div>
+              <div className="text-right text-xs text-gray-400 mt-1">
+                Available: {formatNumber(votingPower)} EDU
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+                onClick={() => setShowVotingModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+                onClick={handleVoteSubmit}
+              >
+                Confirm Vote
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Proposal Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="glass rounded-xl max-w-lg w-full p-6">
+            <h3 className="text-xl font-medium mb-4">Create New Proposal</h3>
+            
+            <div className="mb-4">
+              <div className="text-sm text-gray-400 mb-2">Title</div>
+              <input
+                type="text"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+                placeholder="Enter proposal title"
+                value={newProposal.title}
+                onChange={(e) => setNewProposal({...newProposal, title: e.target.value})}
+              />
+            </div>
+            
+            <div className="mb-4">
+              <div className="text-sm text-gray-400 mb-2">Description</div>
+              <textarea
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white min-h-[100px]"
+                placeholder="Enter proposal description"
+                value={newProposal.description}
+                onChange={(e) => setNewProposal({...newProposal, description: e.target.value})}
+              ></textarea>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <div className="text-sm text-gray-400 mb-2">Min. Required EDU</div>
+                <input
+                  type="number"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+                  placeholder="Min. required EDU"
+                  value={newProposal.minEduRequired}
+                  onChange={(e) => setNewProposal({...newProposal, minEduRequired: parseInt(e.target.value) || 0})}
+                />
+              </div>
+              
+              <div>
+                <div className="text-sm text-gray-400 mb-2">Duration (days)</div>
+                <input
+                  type="number"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+                  placeholder="Duration in days"
+                  value={newProposal.durationDays}
+                  onChange={(e) => setNewProposal({...newProposal, durationDays: e.target.value})}
+                />
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <div className="text-sm text-gray-400 mb-2">Stake Amount (EDU)</div>
+              <div className="relative">
+                <input
+                  type="text"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+                  placeholder="Enter stake amount"
+                  value={newProposal.stakeAmount}
+                  onChange={(e) => setNewProposal({...newProposal, stakeAmount: e.target.value})}
+                />
+              </div>
+              <div className="text-xs text-gray-400 mt-1 flex justify-between">
+                <span>You must stake EDU to create a proposal</span>
+                <span>Available: {formatNumber(votingPower)} EDU</span>
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+                onClick={createProposal}
+              >
+                Create Proposal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Proposal Details Modal */}
+      {showProposalDetails && selectedProposalDetails && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="glass rounded-xl max-w-4xl w-full p-6 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-2xl font-medium">{selectedProposalDetails.title}</h2>
+                  {selectedProposalDetails.status === ProposalStatus.ACTIVE && 
+                    <span className="px-2 py-1 text-xs rounded-full bg-blue-500/20 text-blue-400">Active</span>}
+                  {selectedProposalDetails.status === ProposalStatus.PASSED && 
+                    <span className="px-2 py-1 text-xs rounded-full bg-green-500/20 text-green-400">Passed</span>}
+                  {selectedProposalDetails.status === ProposalStatus.REJECTED && 
+                    <span className="px-2 py-1 text-xs rounded-full bg-red-500/20 text-red-400">Rejected</span>}
+                </div>
+                <div className="flex items-center text-sm text-gray-400 gap-4">
+                  <span className="flex items-center">
+                    <UserGroupIcon className="h-4 w-4 mr-1" />
+                    Proposed by {formatAddress(selectedProposalDetails.proposer)}
+                  </span>
+                  <span className="flex items-center">
+                    <ClockIcon className="h-4 w-4 mr-1" />
+                    Created {new Date(selectedProposalDetails.startTime).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+              
+              <button
+                className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                onClick={closeProposalDetails}
+              >
+                <XCircleIcon className="h-6 w-6 text-gray-400" />
+              </button>
+            </div>
+            
+            <div className="glass-dark p-6 rounded-xl mb-6">
+              <h3 className="text-gray-300 text-lg mb-3">Description</h3>
+              <p className="text-gray-400 whitespace-pre-line">
+                {selectedProposalDetails.description}
+              </p>
+            </div>
+            
+            <div className="mb-6">
+              <h3 className="text-gray-300 text-lg mb-3">Voting Results</h3>
+              
+              <div className="glass-dark p-6 rounded-xl">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-green-400">
+                    For: {formatNumber(selectedProposalDetails.forVotes)} EDU ({calculateVotePercentage(selectedProposalDetails).for.toFixed(1)}%)
+                  </span>
+                  <span className="text-red-400">
+                    Against: {formatNumber(selectedProposalDetails.againstVotes)} EDU ({calculateVotePercentage(selectedProposalDetails).against.toFixed(1)}%)
+                  </span>
+                </div>
+                
+                <div className="h-4 w-full bg-gray-700 rounded-full overflow-hidden mb-4">
+                  <div 
+                    className="h-full bg-gradient-to-r from-green-500 to-green-400"
+                    style={{ width: `${calculateVotePercentage(selectedProposalDetails).for}%` }}
+                  ></div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="glass-dark rounded-lg p-4">
+                    <div className="text-gray-400 mb-1">Quorum</div>
+                    <div className="text-white font-medium">{formatNumber(selectedProposalDetails.quorum)} EDU</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {(selectedProposalDetails.forVotes + selectedProposalDetails.againstVotes) >= selectedProposalDetails.quorum 
+                        ? 'Quorum reached' 
+                        : 'Quorum not reached'}
                     </div>
                   </div>
-                ))
+                  
+                  <div className="glass-dark rounded-lg p-4">
+                    <div className="text-gray-400 mb-1">Status</div>
+                    <div className="text-white font-medium">
+                      {selectedProposalDetails.status === ProposalStatus.ACTIVE && 'Active'}
+                      {selectedProposalDetails.status === ProposalStatus.PASSED && 'Passed'}
+                      {selectedProposalDetails.status === ProposalStatus.REJECTED && 'Rejected'}
+                      {selectedProposalDetails.status === ProposalStatus.EXECUTED && 'Executed'}
+                      {selectedProposalDetails.status === ProposalStatus.CANCELLED && 'Cancelled'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {selectedProposalDetails.status === ProposalStatus.ACTIVE 
+                        ? `Ends ${new Date(selectedProposalDetails.endTime).toLocaleDateString()}`
+                        : `Ended ${new Date(selectedProposalDetails.endTime).toLocaleDateString()}`}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <a
+                href={selectedProposalDetails.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-400 hover:text-indigo-300 transition-colors flex items-center"
+              >
+                <span>View on blockchain</span>
+                <ArrowTopRightOnSquareIcon className="h-4 w-4 ml-1" />
+              </a>
+              
+              {selectedProposalDetails.status === ProposalStatus.ACTIVE && !hasVoted(selectedProposalDetails.id) && (
+                <button
+                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+                  onClick={() => {
+                    closeProposalDetails();
+                    openVotingModal(selectedProposalDetails);
+                  }}
+                >
+                  Vote Now
+                </button>
               )}
             </div>
-          </>
-        ) : (
-          <div className="glass rounded-xl p-8 text-center">
-            <h3 className="text-xl font-medium mb-4">请先连接您的钱包</h3>
-            <p className="text-gray-400 mb-6">连接钱包以参与DAO治理和提案投票</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 } 

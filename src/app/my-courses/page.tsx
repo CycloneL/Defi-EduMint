@@ -145,7 +145,7 @@ const mockCourses: Course[] = [
 ];
 
 const MyCoursesPage = () => {
-  const { account, connected } = useWeb3();
+  const { walletAddress, isConnected } = useWeb3();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -179,12 +179,12 @@ const MyCoursesPage = () => {
       }
     };
     
-    if (connected) {
+    if (isConnected) {
       fetchCourses();
     } else {
       setIsLoading(false);
     }
-  }, [connected]);
+  }, [isConnected]);
   
   // Handle video upload
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -392,7 +392,7 @@ const MyCoursesPage = () => {
           </Link>
         </div>
         
-        {!connected ? (
+        {!isConnected ? (
           <div className="glass p-8 rounded-xl text-center">
             <h2 className="text-2xl font-semibold mb-4">Connect Your Wallet</h2>
             <p className="text-gray-400 mb-6">Please connect your wallet to view your created courses.</p>

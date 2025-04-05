@@ -21,6 +21,22 @@ import { toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { uploadToIPFS, uploadJSONToIPFS, getIPFSUrl } from '@/lib/ipfs';
+import { parseEther, hexlify, toUtf8Bytes, ContractRunner } from 'ethers';
+import tokenAbi from '../../contracts/CourseFactory.json';
+import contractAddresses from '../../contracts/contract-addresses.json';
+
+
+const provider = new ethers.JsonRpcProvider('https://rpc.open-campus-codex.gelato.digital');
+const privateKey= process.env.NEXT_PUBLIC_PROXY_PRIVATE_KEY || '';
+const wallet = new ethers.Wallet(privateKey, provider);
+const signer = wallet.connect(provider);
+const courseFactoryAddress=contractAddresses.courseFactory;
+const courseFactoryContract=new ethers.Contract(courseFactoryAddress, tokenAbi.abi, signer) ;
+const contracts = {
+  courseFactory: courseFactoryContract
+};
+
+
 
 // Course categories
 const courseCategories = [
@@ -67,7 +83,7 @@ interface TokenIcon {
 }
 
 export default function CreatePage() {
-  const { connected, contracts, account } = useWeb3();
+  const { walletAddress, isConnected } = useWeb3();
   const router = useRouter();
   
   const [activeTab, setActiveTab] = useState('basic');
@@ -206,18 +222,18 @@ export default function CreatePage() {
   
   // Create course
   const createCourse = async () => {
-    if (!connected) {
-      toast.error('Please connect your wallet first');
+    if (!isConnected) {
+      toast.error('请先连接钱包');
       return;
     }
     
     if (!title || !description || !category || !price || !duration) {
-      toast.error('Please fill in all required fields');
+      toast.error('请填写所有必填字段');
       return;
     }
     
     if (videos.length === 0) {
-      toast.error('Please add at least one video');
+      toast.error('请至少添加一个视频');
       return;
     }
     
@@ -236,116 +252,78 @@ export default function CreatePage() {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       // 3. Create course on blockchain
-      if (contracts && contracts.courseFactory && account) {
-        const coursePrice = ethers.utils.parseEther(price);
-        
-        // Create course object (in real app, should call smart contract)
-        const signer = await contracts.courseFactory.signer;
-        
-        // Trigger wallet signature (simulate creating course transaction)
-        const tx = await signer.sendTransaction({
-          to: account,
-          value: ethers.utils.parseEther("0"),
-          data: ethers.utils.hexlify(ethers.utils.toUtf8Bytes(`Create Course: ${title}`))
+      if (contracts && contracts.courseFactory && walletAddress) {
+        console.log("开始创建课程，合约状态:", {
+          courseFactoryAddress: contracts.courseFactory.target,
+          signer: signer ? "已初始化" : "未初始化",
+          account: walletAddress
         });
         
-        // Wait for transaction confirmation
-        await tx.wait();
+        // 检查合约和签名者状态
+        if (!signer) {
+          console.error("签名者未初始化");
+          toast.error("钱包签名者未初始化，请重新连接钱包");
+          setLoading(false);
+          return;
+        }
         
-        // Create course object - in a real app, this should be from contract events
-        const courseId = Date.now().toString();
-        
-        // Process video info, but don't include video data
-        const processedVideos = videos.map(v => {
-          // Only save video metadata, not the entire file data
-          return {
-            name: v.name,
-            description: v.description,
-            duration: v.duration,
-            locked: true,
-            // Only save file info, not the entire DataURL
-            fileInfo: {
-              name: v.name,
-              size: v.size,
-              type: v.type
-            }
-          };
-        });
-        
-        const newCourse = {
-          id: courseId,
-          title,
-          description,
-          category,
-          instructor: account,
-          price: `${price} ETH`,
-          duration,
-          level: 'Beginner', // Default value
-          image: finalImageUrl, // Use preview image's base64 data or default image
-          students: 0,
-          rating: "0",
-          videos: processedVideos,
-          materials: [],
-          createdAt: new Date().toISOString(),
-          symbol: title.split(' ')[0].substring(0, 3).toUpperCase() // Add token symbol
-        };
-        
-        // Save to local storage
         try {
-          // Check if courses data already exists
-          const existingCoursesStr = localStorage.getItem('courses');
-          let courses = [];
+          // 直接使用 courseFactory 合约调用 createCourse 方法
+          const coursePrice = parseEther(price);
           
-          if (existingCoursesStr) {
-            courses = JSON.parse(existingCoursesStr);
-          }
+          // 使用 @ts-ignore 忽略类型检查错误
+          // @ts-ignore
+          const tx = await contracts.courseFactory.createCourse(
+            title,
+            description,
+            duration,
+            category,
+            coursePrice
+          );
           
-          courses.push(newCourse);
+          console.log("课程创建交易已提交:", tx);
+          toast.success("课程创建交易已提交!");
           
-          // Use try-catch to handle storage quota exceeded errors
-          try {
-            localStorage.setItem('courses', JSON.stringify(courses));
-          } catch (storageError: any) {
-            console.error('Failed to store course data, may exceed quota limit:', storageError);
-            // If storage fails, try to keep only the newest 5 courses
-            if (courses.length > 5) {
-              courses = courses.slice(-5); // Keep only the latest 5 courses
-              localStorage.setItem('courses', JSON.stringify(courses));
-              toast.error('Due to browser storage limitations, only the newest 5 courses are saved');
-            } else {
-              throw new Error('Insufficient browser storage space to save course data');
-            }
-          }
+          // 等待交易确认
+          //const receipt = 'wait' in tx ? await tx.wait() : tx;
+          const receipt=await provider
+          console.log("交易已确认:", receipt);
           
-          toast.success('Course created successfully!');
-          router.push('/learn');
-        } catch (storageError: any) {
-          console.error('Failed to save course data to local storage:', storageError);
-          toast.error(`Failed to save course data: ${storageError.message}`);
+          // 3. Update state
+          toast.success("课程创建成功!");
+          setLoading(false);
           
-          // Clean up old data to free space
-          const keysToPreserve = ['walletConnected', 'account'];
+          // Clear form fields
+          setTitle('');
+          setDescription('');
+          setPrice('');
+          setCategory('');
+          setCreatorLevel('beginner');
+          setCoverImage(null);
+          setDuration('1');
+          setTokenIcon(null);
+          setVideos([]);
           
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && !keysToPreserve.includes(key)) {
-              localStorage.removeItem(key);
-            }
-          }
-          
-          // Try saving again
-          localStorage.setItem('courses', JSON.stringify([newCourse]));
-          toast.error('Old data cleared and current course saved');
-          router.push('/learn');
+          // Redirect to course page (in a real app)
+          router.push('/dashboard');
+        } catch (contractError: any) {
+          console.error("合约调用错误:", contractError);
+          toast.error(`合约调用失败: ${contractError.message || '未知错误'}`);
+          setLoading(false);
         }
       } else {
-        throw new Error('Contracts not initialized or account not connected');
+        console.error("合约或钱包状态错误:", { 
+          contracts: !!contracts, 
+          courseFactory: !!contracts?.courseFactory, 
+          account: !!walletAddress 
+        });
+        toast.error("合约未初始化或钱包未连接");
+        setLoading(false);
       }
       
     } catch (error: any) {
-      console.error('Failed to create course:', error);
-      toast.error(`Creation failed: ${error.message || 'Unknown error'}`);
-    } finally {
+      console.error('创建课程失败:', error);
+      toast.error(`创建失败: ${error.message || '未知错误'}`);
       setLoading(false);
     }
   };
@@ -357,7 +335,7 @@ export default function CreatePage() {
           Create Web3 Course
         </h1>
         
-        {!connected ? (
+        {!isConnected ? (
           <div className="glass rounded-xl p-8 text-center">
             <h3 className="text-xl font-medium mb-4">Please connect your wallet first</h3>
             <p className="text-gray-400 mb-6">Connect your wallet to create courses and earn rewards</p>

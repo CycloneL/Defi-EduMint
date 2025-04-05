@@ -1,13 +1,18 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useWeb3 } from '@/context/Web3Context';
+import { useZeroDev } from '@/context/ZeroDevProvider';
 import { toast } from 'react-hot-toast';
 import { Button } from "@/components/ui/button"
 import { motion } from "framer-motion"
 import Image from "next/image"
-import { ChevronDown, Menu, X } from "lucide-react"
+import { ChevronDown, Menu, X, Wallet } from "lucide-react"
+import ZeroDevLogin from './ZeroDevLogin';
+//import ProxyStatus from './ProxyStatus';
+import { forceReconnectWallet } from '@/utils/wallet-sync';
+import { formatEther, parseEther } from 'ethers';
+import { usePathname } from 'next/navigation';
 
 // Dropdown menu interface
 interface DropdownItem {
@@ -62,39 +67,124 @@ const navItems: NavItem[] = [
   },
 ]
 
-// 钱包提供商数据 - 使用真实图标
+// Wallet provider data
 const walletProviders: WalletProvider[] = [
   {
     name: "MetaMask",
     icon: "https://upload.wikimedia.org/wikipedia/commons/3/36/MetaMask_Fox.svg",
-    description: "连接到您的MetaMask钱包"
+    description: "Connect to your MetaMask wallet"
   },
   {
     name: "Coinbase",
     icon: "https://seeklogo.com/images/C/coinbase-coin-logo-C86F46D7B8-seeklogo.com.png",
-    description: "连接到您的Coinbase钱包"
+    description: "Connect to your Coinbase wallet"
   },
   {
     name: "WalletConnect",
     icon: "https://seeklogo.com/images/W/walletconnect-logo-EE83B50C97-seeklogo.com.png",
-    description: "使用WalletConnect扫码连接"
+    description: "Scan QR code with WalletConnect"
   },
   {
     name: "Trust Wallet",
     icon: "https://trustwallet.com/assets/images/media/assets/trust_platform.svg",
-    description: "连接到您的Trust Wallet"
+    description: "Connect to your Trust Wallet"
   }
 ]
 
 const Navbar: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { account, connected, connecting, connectWallet, eduBalance } = useWeb3();
+  const { walletAddress, isConnected, connecting, connectWallet, eduBalance } = useWeb3();
+  const { isConnected: zeroDevConnected, address, userName, userEmail } = useZeroDev();
   const [buyAmount, setBuyAmount] = useState('');
-  const [buying, setBuying] = useState(false);
-  const [showBuyModal, setShowBuyModal] = useState(false);
+  const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const userDropdownRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
   const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [combinedConnectionState, setCombinedConnectionState] = useState({
+    isConnected: false,
+    address: '',
+    displayName: '',
+    eduBalance: '0'
+  });
+
+  // Monitor global state changes and wallet connection state changes
+  useEffect(() => {
+    const updateCombinedState = () => {
+      // 1. Check ZeroDev status
+      if (zeroDevConnected && address) {
+        setBalanceLoading(true);
+        setCombinedConnectionState({
+          isConnected: true,
+          address: address,
+          displayName: userName || formatAddress(address),
+          eduBalance: eduBalance || 'Loading...'
+        });
+        
+        // Timer to set balance to 0 after 5 seconds if still loading
+        const timer = setTimeout(() => {
+          if (eduBalance === '0' || !eduBalance) {
+            setBalanceLoading(false);
+            setCombinedConnectionState(prev => ({
+              ...prev,
+              eduBalance: '0'
+            }));
+          }
+        }, 5000);
+        
+        return () => clearTimeout(timer);
+      }
+      
+      // 2. Check Web3Context status
+      else if (zeroDevConnected && walletAddress) {
+        setBalanceLoading(true);
+        setCombinedConnectionState({
+          isConnected: true,
+          address: walletAddress,
+          displayName: formatAddress(walletAddress),
+          eduBalance: eduBalance || 'Loading...'
+        });
+      }
+      
+      // 3. Check global state as fallback
+      else if (typeof window !== 'undefined' && (window as any).walletConnected && (window as any).walletAddress) {
+        setBalanceLoading(true);
+        const globalAddress = (window as any).walletAddress;
+        setCombinedConnectionState({
+          isConnected: true,
+          address: globalAddress,
+          displayName: formatAddress(globalAddress),
+          eduBalance: eduBalance || 'Loading...'
+        });
+        
+        // Try to force reconnect wallet to ensure state sync
+        if (!zeroDevConnected && !isConnected) {
+          forceReconnectWallet();
+        }
+      }
+      
+      // 4. Not connected
+      else {
+        setCombinedConnectionState({
+          isConnected: false,
+          address: '',
+          displayName: '',
+          eduBalance: '0'
+        });
+        setBalanceLoading(false);
+      }
+    };
+    
+    updateCombinedState();
+    
+    // Update combined state when any dependent state changes
+    return () => {
+      // Clean up any pending timers if needed
+    };
+  }, [zeroDevConnected, address, userName, walletAddress, eduBalance]);
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -103,16 +193,6 @@ const Navbar: React.FC = () => {
   // Format address display
   const formatAddress = (address: string) => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
-  };
-
-  // Handle wallet connection
-  const handleConnectWallet = async () => {
-    try {
-      await connectWallet();
-      setWalletModalOpen(false);
-    } catch (error) {
-      console.error('Wallet connection failed:', error);
-    }
   };
 
   return (
@@ -133,33 +213,25 @@ const Navbar: React.FC = () => {
       </Link>
 
       {/* Desktop navigation menu */}
-      <div className="hidden md:flex items-center space-x-8">
+      <div className="hidden md:flex items-center space-x-1">
         {navItems.map((item, index) => (
-          <div 
-            key={index} 
-            className="relative"
-          >
-            {/* Use a div instead of button to fix the hover issue */}
-            <div 
-              className="flex items-center space-x-1 text-gray-300 hover:text-white transition-colors cursor-pointer"
-              onMouseEnter={() => setActiveDropdown(index)}
+          <div key={index} className="relative group">
+            <button
+              className="px-3 py-2 text-gray-300 hover:text-white flex items-center"
+              onClick={() => setActiveDropdown(activeDropdown === index ? null : index)}
             >
-              <span>{item.label}</span>
-              <ChevronDown className="w-4 h-4" />
-            </div>
-            
-            {/* Dropdown menu - fixed by adding onMouseLeave to the dropdown itself */}
+              {item.label}
+              <ChevronDown className="ml-1 h-4 w-4" />
+            </button>
             {activeDropdown === index && (
-              <div 
-                className="absolute left-0 mt-2 w-48 rounded-md overflow-hidden z-50 glass-dark"
-                onMouseLeave={() => setActiveDropdown(null)}
-              >
+              <div className="absolute left-0 mt-2 w-48 rounded-md glass-dark shadow-lg z-10">
                 <div className="py-1">
                   {item.dropdown.map((dropdownItem, dropdownIndex) => (
                     <Link
                       key={dropdownIndex}
                       href={dropdownItem.href}
-                      className="block px-4 py-2 text-sm text-gray-300 hover:bg-purple-500/20 hover:text-white"
+                      className="block px-4 py-2 text-sm text-gray-300 hover:bg-purple-700/20 hover:text-white"
+                      onClick={() => setActiveDropdown(null)}
                     >
                       {dropdownItem.label}
                     </Link>
@@ -171,95 +243,66 @@ const Navbar: React.FC = () => {
         ))}
       </div>
 
-      {/* Wallet connection button and EDU balance */}
-      <div className="hidden md:flex items-center space-x-4">
-        {connected && (
-          <div className="text-sm text-gray-300">
-            <span className="mr-1">EDU Balance:</span>
-            <span className="font-bold text-purple-400">{eduBalance || '0'}</span>
+      {/* Wallet Connection */}
+      <div className="flex items-center space-x-4">
+        {combinedConnectionState.isConnected && (
+          <div className="hidden md:flex items-center space-x-2">
+            <div className="px-3 py-1 rounded-lg bg-purple-900/30 text-purple-300 border border-purple-700/50 flex items-center">
+              {balanceLoading ? (
+                <div className="animate-pulse flex items-center">
+                  <div className="w-2 h-2 bg-purple-300 rounded-full mr-1"></div>
+                  <span className="text-xs font-medium">Loading...</span>
+                </div>
+              ) : (
+                <span className="text-xs font-medium">{combinedConnectionState.eduBalance} EDU</span>
+              )}
+            </div>
+            
+            <div className="px-3 py-1 rounded-lg bg-gray-800/80 text-gray-300 border border-gray-700/50 flex items-center">
+              <Wallet className="w-3 h-3 mr-1" />
+              <span className="text-xs font-medium">{combinedConnectionState.displayName}</span>
+            </div>
+            
+            {/* <ProxyStatus /> */}
           </div>
         )}
         
-        {!connected ? (
-          <Button 
-            className="bg-purple-600 hover:bg-purple-700 text-white"
-            onClick={handleConnectWallet}
-            disabled={connecting}
-          >
-            {connecting ? 'Connecting...' : 'Connect Wallet'}
-          </Button>
-        ) : (
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" className="text-white border-purple-500 hover:bg-purple-500/20">
-              {formatAddress(account || '')}
-            </Button>
-          </div>
-        )}
+        {/* ZeroDev Login Button */}
+        <ZeroDevLogin />
+        
+        {/* Mobile menu button */}
+        <button
+          className="md:hidden p-2 rounded-lg hover:bg-gray-800/50"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+        >
+          {mobileMenuOpen ? (
+            <X className="h-6 w-6 text-gray-300" />
+          ) : (
+            <Menu className="h-6 w-6 text-gray-300" />
+          )}
+        </button>
       </div>
 
-      {/* Mobile menu button */}
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        className="md:hidden text-white"
-        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-      >
-        {mobileMenuOpen ? (
-          <X className="w-6 h-6" />
-        ) : (
-          <Menu className="w-6 h-6" />
-        )}
-      </Button>
-
-      {/* Mobile menu */}
+      {/* Mobile navigation menu */}
       {mobileMenuOpen && (
-        <div className="absolute top-full left-0 right-0 glass-dark md:hidden z-50">
-          <div className="px-4 py-3 space-y-4">
-            {navItems.map((item, index) => (
-              <div key={index} className="space-y-2">
-                <div className="text-white font-medium">{item.label}</div>
-                <div className="pl-4 space-y-2">
-                  {item.dropdown.map((dropdownItem, dropdownIndex) => (
-                    <Link
-                      key={dropdownIndex}
-                      href={dropdownItem.href}
-                      className="block text-sm text-gray-300 hover:text-white"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      {dropdownItem.label}
-                    </Link>
-                  ))}
-                </div>
+        <div className="md:hidden absolute top-full left-0 right-0 glass border-t border-white/10 p-4 z-40">
+          {navItems.map((item, index) => (
+            <div key={index} className="mb-4">
+              <div className="font-medium text-gray-200 mb-2">{item.label}</div>
+              <div className="pl-4 space-y-2">
+                {item.dropdown.map((dropdownItem, dropdownIndex) => (
+                  <Link
+                    key={dropdownIndex}
+                    href={dropdownItem.href}
+                    className="block text-sm text-gray-400 hover:text-white"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {dropdownItem.label}
+                  </Link>
+                ))}
               </div>
-            ))}
-            
-            {/* Mobile EDU balance */}
-            {connected && (
-              <div className="text-sm text-gray-300 pt-2">
-                <span>EDU Balance:</span>
-                <span className="font-bold text-purple-400 ml-2">{eduBalance || '0'}</span>
-              </div>
-            )}
-            
-            {/* Mobile wallet connection button */}
-            <div className="pt-2">
-              {!connected ? (
-                <Button 
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                  onClick={handleConnectWallet}
-                  disabled={connecting}
-                >
-                  {connecting ? 'Connecting...' : 'Connect Wallet'}
-                </Button>
-              ) : (
-                <div className="space-y-2">
-                  <Button variant="outline" className="w-full text-white border-purple-500 hover:bg-purple-500/20">
-                    {formatAddress(account || '')}
-                  </Button>
-                </div>
-              )}
             </div>
-          </div>
+          ))}
         </div>
       )}
     </motion.nav>
