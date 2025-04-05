@@ -21,6 +21,13 @@ import {
 } from '@heroicons/react/24/outline';
 import Image from 'next/image';
 import { toast } from 'react-hot-toast';
+import { ethers } from 'ethers';
+
+const provider = new ethers.JsonRpcProvider('https://rpc.open-campus-codex.gelato.digital');
+const privateKey= process.env.NEXT_PUBLIC_PROXY_PRIVATE_KEY || '';
+const wallet = new ethers.Wallet(privateKey, provider);
+const signer = wallet.connect(provider);
+
 
 // Proposal status enum
 enum ProposalStatus {

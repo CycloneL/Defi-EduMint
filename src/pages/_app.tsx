@@ -1,4 +1,6 @@
 // Add global wallet state initialization on app start
+import { useEffect } from 'react';
+
 useEffect(() => {
   if (typeof window === 'undefined') return;
   

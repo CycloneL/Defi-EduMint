@@ -1,3 +1,3 @@
-export default function StakePage() {
-  const { walletAddress, isConnected } = useWeb3();
-} 
+// export default function StakePage() {
+//   const { walletAddress, isConnected } = useWeb3();
+// } 

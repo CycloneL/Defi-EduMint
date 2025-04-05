@@ -334,7 +334,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, onSelect, onPurchase, p
 };
 
 export default function LearnPage() {
-  const { account, connected } = useWeb3();
+  const { walletAddress, isConnected } = useWeb3();
   const [courses, setCourses] = useState<Course[]>([]);
   const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
@@ -381,7 +381,7 @@ export default function LearnPage() {
   
   // Handle purchasing a course
   const handlePurchase = async (courseId: string) => {
-    if (!connected) {
+    if (!isConnected) {
       toast.error('Please connect your wallet first');
       return;
     }
