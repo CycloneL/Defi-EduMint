@@ -14,6 +14,7 @@ import { forceReconnectWallet } from '@/utils/wallet-sync';
 import { formatEther, parseEther } from 'ethers';
 import { usePathname } from 'next/navigation';
 
+
 // Dropdown menu interface
 interface DropdownItem {
   label: string
@@ -99,6 +100,7 @@ const Navbar: React.FC = () => {
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [localEduBalance, setLocalEduBalance] = useState('0');
   const userDropdownRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
@@ -111,6 +113,43 @@ const Navbar: React.FC = () => {
     eduBalance: '0'
   });
 
+  // 从本地存储加载EDU余额
+  useEffect(() => {
+    try {
+      // 尝试从本地存储中读取余额
+      const storedBalance = localStorage.getItem('eduBalance');
+      if (storedBalance) {
+        setLocalEduBalance(storedBalance);
+      } else {
+        // 如果本地存储中没有余额，则设置默认值
+        localStorage.setItem('eduBalance', '100');
+        setLocalEduBalance('100');
+      }
+    } catch (error) {
+      console.error('读取本地EDU余额失败:', error);
+    }
+  }, []);
+
+  // 监听余额变化事件
+  useEffect(() => {
+    const handleBalanceChange = (event: any) => {
+      if (event.detail && event.detail.balance) {
+        setLocalEduBalance(event.detail.balance);
+        // 显示余额变化动画效果
+        setBalanceLoading(true);
+        setTimeout(() => {
+          setBalanceLoading(false);
+        }, 800);
+      }
+    };
+
+    window.addEventListener('eduBalanceChanged', handleBalanceChange);
+    
+    return () => {
+      window.removeEventListener('eduBalanceChanged', handleBalanceChange);
+    };
+  }, []);
+
   // Monitor global state changes and wallet connection state changes
   useEffect(() => {
     const updateCombinedState = () => {
@@ -121,7 +160,8 @@ const Navbar: React.FC = () => {
           isConnected: true,
           address: address,
           displayName: userName || formatAddress(address),
-          eduBalance: eduBalance || 'Loading...'
+          // 优先使用本地存储中的余额，如果没有再使用eduBalance
+          eduBalance: localEduBalance || eduBalance || 'Loading...'
         });
         
         // Timer to set balance to 0 after 5 seconds if still loading
@@ -130,7 +170,7 @@ const Navbar: React.FC = () => {
             setBalanceLoading(false);
             setCombinedConnectionState(prev => ({
               ...prev,
-              eduBalance: '0'
+              eduBalance: localEduBalance || '100'
             }));
           }
         }, 5000);
@@ -145,7 +185,7 @@ const Navbar: React.FC = () => {
           isConnected: true,
           address: walletAddress,
           displayName: formatAddress(walletAddress),
-          eduBalance: eduBalance || 'Loading...'
+          eduBalance: localEduBalance || eduBalance || 'Loading...'
         });
       }
       
@@ -157,7 +197,7 @@ const Navbar: React.FC = () => {
           isConnected: true,
           address: globalAddress,
           displayName: formatAddress(globalAddress),
-          eduBalance: eduBalance || 'Loading...'
+          eduBalance: localEduBalance || eduBalance || 'Loading...'
         });
         
         // Try to force reconnect wallet to ensure state sync
@@ -184,7 +224,7 @@ const Navbar: React.FC = () => {
     return () => {
       // Clean up any pending timers if needed
     };
-  }, [zeroDevConnected, address, userName, walletAddress, eduBalance]);
+  }, [zeroDevConnected, address, userName, walletAddress, eduBalance, localEduBalance]);
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);

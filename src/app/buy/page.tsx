@@ -33,6 +33,7 @@ import {
   ChartOptions,
 } from 'chart.js';
 import { Chart, Bar } from 'react-chartjs-2';
+import { updateEduBalance } from '@/utils/balance-operations';
 
 // Register ChartJS components
 ChartJS.register(
@@ -521,12 +522,29 @@ export default function BuyPage() {
       return;
     }
     
+    // 计算购买总额
+    const buyTotalValue = parseFloat(buyTotal);
+    
+    // 检查EDU余额是否足够支付购买费用
+    const currentBalance = localStorage.getItem('eduBalance');
+    if (!currentBalance || parseFloat(currentBalance) < buyTotalValue) {
+      toast.error(`EDU余额不足，需要${buyTotal} EDU，您的余额为${currentBalance || 0} EDU`);
+      return;
+    }
+    
     try {
       setBuyLoading(true);
       
       // In a real application, this would call a smart contract
       // For demo purposes, simulate a network delay
       await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 更新EDU余额
+      const didUpdateBalance = updateEduBalance(`-${buyTotal}`, `购买${selectedToken.symbol}代币`);
+      if (!didUpdateBalance) {
+        setBuyLoading(false);
+        return; // updateEduBalance函数会显示错误消息
+      }
       
       // Create a new order
       const newOrder: Order = {
@@ -571,6 +589,42 @@ export default function BuyPage() {
 
   // Token categories
   const categories = ['all', 'blockchain', 'development', 'finance', 'security'];
+
+  // 添加 useEffect 从本地存储加载新创建的课程代币
+  useEffect(() => {
+    try {
+      // 获取本地存储中的代币数据
+      const createdCourseTokensJson = localStorage.getItem('createdCourseTokens');
+      
+      // 如果有创建的课程代币数据，解析并合并
+      let allTokens = [...mockCourseTokens];
+      
+      if (createdCourseTokensJson) {
+        const createdCourseTokens = JSON.parse(createdCourseTokensJson);
+        
+        // 确保每个创建的代币有唯一的 ID
+        const existingIds = new Set(allTokens.map(token => token.id));
+        
+        // 将创建的代币添加到代币列表
+        createdCourseTokens.forEach((token: CourseToken) => {
+          // 确保不会重复添加相同 ID 的代币
+          if (!existingIds.has(token.id)) {
+            allTokens.push(token);
+            existingIds.add(token.id);
+          }
+        });
+        
+        console.log("已加载创建的课程代币:", createdCourseTokens.length);
+      }
+      
+      // 更新代币列表状态
+      setTokens(allTokens);
+    } catch (error) {
+      console.error("加载创建的课程代币失败:", error);
+      // 如果出错，至少确保使用模拟数据
+      setTokens(mockCourseTokens);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen">

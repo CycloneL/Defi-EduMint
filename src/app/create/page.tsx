@@ -24,6 +24,7 @@ import { uploadToIPFS, uploadJSONToIPFS, getIPFSUrl } from '@/lib/ipfs';
 import { parseEther, hexlify, toUtf8Bytes, ContractRunner } from 'ethers';
 import tokenAbi from '../../contracts/CourseFactory.json';
 import contractAddresses from '../../contracts/contract-addresses.json';
+import { updateEduBalance } from '@/utils/balance-operations';
 
 
 const provider = new ethers.JsonRpcProvider('https://rpc.open-campus-codex.gelato.digital');
@@ -237,6 +238,14 @@ export default function CreatePage() {
       return;
     }
     
+    // 检查EDU余额是否足够
+    const creationCost = "10"; // 创建课程需要10 EDU
+    const currentBalance = localStorage.getItem('eduBalance');
+    if (!currentBalance || parseFloat(currentBalance) < parseFloat(creationCost)) {
+      toast.error(`创建课程需要${creationCost} EDU，您的余额不足`);
+      return;
+    }
+    
     try {
       setLoading(true);
       
@@ -288,6 +297,91 @@ export default function CreatePage() {
           //const receipt = 'wait' in tx ? await tx.wait() : tx;
           const receipt=await provider
           console.log("交易已确认:", receipt);
+          
+          // 扣减创建课程所需的EDU代币（教学演示，实际应在合约中处理）
+          updateEduBalance(`-${creationCost}`, '创建课程');
+          
+          // 将新创建的课程代币信息保存到本地存储，以便其他页面可用
+          try {
+            // 创建代币ID (使用时间戳和随机数组合确保唯一性)
+            const courseId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const courseSymbol = tokenSymbol || title.split(' ').map(word => word.charAt(0).toUpperCase()).join('');
+            
+            // 创建代币对象
+            const newCourseToken = {
+              id: courseId,
+              symbol: courseSymbol.length > 5 ? courseSymbol.substring(0, 5) : courseSymbol,
+              name: title,
+              price: price,
+              change: '+0.0%', // 新代币初始涨跌幅
+              description: description,
+              image: finalImageUrl,
+              supply: '1,000,000',
+              holders: 1, // 创建者自己
+              createdAt: new Date().toISOString(),
+              courseId: courseId,
+              category: category,
+              instructor: walletAddress ? `${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}` : 'Unknown',
+              level: creatorLevel,
+              duration: `${duration} hours`,
+              students: 0,
+              popularity: 'new' as any
+            };
+            
+            // 交易数据对象
+            const newToken = {
+              id: courseId,
+              symbol: courseSymbol.length > 5 ? courseSymbol.substring(0, 5) : courseSymbol,
+              name: title,
+              image: finalImageUrl,
+              price: parseFloat(price),
+              change: '+0.0%',
+              volume: '0',
+              balance: '1,000,000'
+            };
+            
+            // 流动性池数据对象
+            const newLiquidityToken = {
+              id: parseInt(courseId.split('-')[0]),
+              name: title,
+              symbol: courseSymbol.length > 5 ? courseSymbol.substring(0, 5) : courseSymbol,
+              price: parseFloat(price),
+              change24h: 0,
+              volume24h: 0,
+              marketCap: 1000000 * parseFloat(price),
+              totalSupply: 1000000,
+              poolSize: 1000,
+              myLiquidity: 1000,
+              apr: 15,
+              popularity: 'low' as 'high' | 'medium' | 'low',
+              image: finalImageUrl
+            };
+            
+            // 从本地存储中获取现有数据
+            const courseTokensJson = localStorage.getItem('createdCourseTokens');
+            const tradeTokensJson = localStorage.getItem('createdTradeTokens');
+            const liquidityTokensJson = localStorage.getItem('createdLiquidityTokens');
+            
+            // 解析现有数据或创建新数组
+            const courseTokens = courseTokensJson ? JSON.parse(courseTokensJson) : [];
+            const tradeTokens = tradeTokensJson ? JSON.parse(tradeTokensJson) : [];
+            const liquidityTokens = liquidityTokensJson ? JSON.parse(liquidityTokensJson) : [];
+            
+            // 添加新数据
+            courseTokens.push(newCourseToken);
+            tradeTokens.push(newToken);
+            liquidityTokens.push(newLiquidityToken);
+            
+            // 保存回本地存储
+            localStorage.setItem('createdCourseTokens', JSON.stringify(courseTokens));
+            localStorage.setItem('createdTradeTokens', JSON.stringify(tradeTokens));
+            localStorage.setItem('createdLiquidityTokens', JSON.stringify(liquidityTokens));
+            
+            console.log("课程代币信息已保存到本地存储:", newCourseToken);
+          } catch (storageError) {
+            console.error("保存课程代币信息到本地存储失败:", storageError);
+            // 不影响主流程，只记录错误
+          }
           
           // 3. Update state
           toast.success("课程创建成功!");

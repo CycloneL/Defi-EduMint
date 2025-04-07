@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useWeb3 } from '@/context/Web3Context';
 import { ethers } from 'ethers';
@@ -30,6 +30,7 @@ import {
 import Image from 'next/image';
 import { toast } from 'react-hot-toast';
 import { Line, Bar, Chart } from 'react-chartjs-2';
+import { updateEduBalance } from '@/utils/balance-operations';
 
 // Register ChartJS components
 ChartJS.register(
@@ -71,7 +72,7 @@ interface Transaction {
 }
 
 // Mock token data
-const tokens: Token[] = [
+const mockTokens: Token[] = [
   { 
     id: '1', 
     symbol: 'EDU', 
@@ -189,7 +190,7 @@ const transactions: Transaction[] = [
 ];
 
 // Generate chart data
-const generateChartData = (fromSymbol: string, toSymbol: string) => {
+const generateChartData = (fromSymbol: string, toSymbol: string, tokensList: Token[]) => {
   // Generate random price data based on token symbol hash
   const pairHash = (fromSymbol + toSymbol).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const seedRandom = (seed: number) => {
@@ -209,8 +210,8 @@ const generateChartData = (fromSymbol: string, toSymbol: string) => {
   });
   
   // Generate price data with trend based on the token's change percentage
-  const fromToken = tokens.find(t => t.symbol === fromSymbol) || tokens[0];
-  const toToken = tokens.find(t => t.symbol === toSymbol) || tokens[1];
+  const fromToken = tokensList.find(t => t.symbol === fromSymbol) || tokensList[0];
+  const toToken = tokensList.find(t => t.symbol === toSymbol) || tokensList[1];
   
   // Calculate base price based on the exchange rate between tokens
   let basePrice = toToken.price / fromToken.price;
@@ -285,9 +286,10 @@ const generateChartData = (fromSymbol: string, toSymbol: string) => {
 };
 
 export default function Trade() {
-  const { walletAddress, isConnected } = useWeb3();
-  const [fromToken, setFromToken] = useState<Token>(tokens[0]); // Default to EDU
-  const [toToken, setToToken] = useState<Token>(tokens[1]); // Default to second token
+  const { walletAddress, isConnected, eduBalance } = useWeb3();
+  const [tokens, setTokens] = useState<Token[]>(mockTokens);
+  const [fromToken, setFromToken] = useState<Token>(mockTokens[0]); // Default to EDU
+  const [toToken, setToToken] = useState<Token>(mockTokens[1]); // Default to second token
   const [fromAmount, setFromAmount] = useState<string>('');
   const [toAmount, setToAmount] = useState<string>('');
   const [showTokenSelectFrom, setShowTokenSelectFrom] = useState<boolean>(false);
@@ -298,7 +300,77 @@ export default function Trade() {
   const chartInstance = useRef<ChartJS | null>(null);
   
   // Chart data
-  const chartData = generateChartData(fromToken.symbol, toToken.symbol);
+  const chartData = useMemo(() => {
+    return generateChartData(fromToken.symbol, toToken.symbol, tokens);
+  }, [fromToken.symbol, toToken.symbol, tokens]);
+  
+  // Chart options
+  const chartOptions = useMemo(() => {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index' as const,
+        intersect: false,
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: 'rgba(255, 255, 255, 0.5)',
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 10
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+          },
+        },
+        y: {
+          position: 'left' as const,
+          ticks: {
+            color: 'rgba(255, 255, 255, 0.5)',
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+          },
+        },
+        y1: {
+          position: 'right' as const,
+          ticks: {
+            color: 'rgba(255, 255, 255, 0.5)',
+          },
+          grid: {
+            display: false,
+          },
+          max: Math.max(...chartData.volumeDataset.data) * 2,
+        },
+      },
+      plugins: {
+        legend: {
+          display: false,
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          titleColor: 'rgba(255, 255, 255, 0.9)',
+          bodyColor: 'rgba(255, 255, 255, 0.9)',
+          borderColor: 'rgba(139, 92, 246, 0.7)',
+          borderWidth: 1,
+          callbacks: {
+            label: function(context: any) {
+              const datasetLabel = context.dataset.label || '';
+              const value = context.raw;
+              if (datasetLabel.includes('Volume')) {
+                return `${datasetLabel}: ${value.toLocaleString()}`;
+              }
+              return `${datasetLabel}: ${value.toFixed(6)} EDU`;
+            }
+          }
+        },
+      },
+    };
+  }, [chartData]);
   
   // Use effect to calculate to amount when from amount changes
   useEffect(() => {
@@ -367,6 +439,20 @@ export default function Trade() {
       return;
     }
     
+    // 检查并更新EDU余额（每次交换扣除1 EDU作为交易费用）
+    const swapFee = "10"; // 交换代币需要1 EDU作为交易费
+    const currentBalance = localStorage.getItem('eduBalance');
+    if (!currentBalance || parseFloat(currentBalance) < parseFloat(swapFee)) {
+      toast.error(`交换代币需要${swapFee} EDU作为交易费，您的余额不足`);
+      return;
+    }
+    
+    // 扣减交易费用
+    const didUpdateBalance = updateEduBalance(`-${swapFee}`, '代币交换手续费');
+    if (!didUpdateBalance) {
+      return; // updateEduBalance函数会显示错误消息
+    }
+    
     // Simulate loading state (API call in real app)
     toast.promise(
       new Promise((resolve) => {
@@ -421,70 +507,46 @@ export default function Trade() {
     ]
   };
   
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: {
-      mode: 'index' as const,
-      intersect: false,
-    },
-    scales: {
-      x: {
-        ticks: {
-          color: 'rgba(255, 255, 255, 0.5)',
-          maxRotation: 0,
-          autoSkip: true,
-          maxTicksLimit: 10
-        },
-        grid: {
-          color: 'rgba(255, 255, 255, 0.1)',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
-        },
-      },
-      y: {
-        position: 'left' as const,
-        ticks: {
-          color: 'rgba(255, 255, 255, 0.5)',
-        },
-        grid: {
-          color: 'rgba(255, 255, 255, 0.1)',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
-        },
-      },
-      y1: {
-        position: 'right' as const,
-        ticks: {
-          color: 'rgba(255, 255, 255, 0.5)',
-        },
-        grid: {
-          display: false,
-        },
-        max: Math.max(...chartData.volumeDataset.data) * 2,
-      },
-    },
-    plugins: {
-      legend: {
-        display: false,
-      },
-      tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        titleColor: 'rgba(255, 255, 255, 0.9)',
-        bodyColor: 'rgba(255, 255, 255, 0.9)',
-        borderColor: 'rgba(139, 92, 246, 0.7)',
-        borderWidth: 1,
-        callbacks: {
-          label: function(context: any) {
-            const datasetLabel = context.dataset.label || '';
-            const value = context.raw;
-            if (datasetLabel.includes('Volume')) {
-              return `${datasetLabel}: ${value.toLocaleString()}`;
-            }
-            return `${datasetLabel}: ${value.toFixed(6)} EDU`;
+  // 添加 useEffect 从本地存储加载新创建的课程代币
+  useEffect(() => {
+    try {
+      // 获取本地存储中的代币数据
+      const createdTradeTokensJson = localStorage.getItem('createdTradeTokens');
+      
+      // 初始化代币列表
+      let allTokens = [...mockTokens];
+      
+      if (createdTradeTokensJson) {
+        const createdTradeTokens = JSON.parse(createdTradeTokensJson);
+        
+        // 确保每个创建的代币有唯一的 ID
+        const existingIds = new Set(allTokens.map(token => token.id));
+        
+        // 将创建的代币添加到代币列表
+        createdTradeTokens.forEach((token: Token) => {
+          // 确保不会重复添加相同 ID 的代币
+          if (!existingIds.has(token.id)) {
+            allTokens.push(token);
+            existingIds.add(token.id);
           }
-        }
-      },
-    },
-  };
+        });
+        
+        console.log("已加载创建的课程代币:", createdTradeTokens.length);
+      }
+      
+      // 更新代币列表状态
+      setTokens(allTokens);
+      // 更新选中的代币
+      setFromToken(allTokens[0]);
+      if (allTokens.length > 1) {
+        setToToken(allTokens[1]);
+      }
+    } catch (error) {
+      console.error("加载创建的课程代币失败:", error);
+      // 如果出错，至少确保使用模拟数据
+      setTokens(mockTokens);
+    }
+  }, []);
   
   return (
     <div className="min-h-screen">

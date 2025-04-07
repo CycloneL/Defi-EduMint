@@ -334,7 +334,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, onSelect, onPurchase, p
 };
 
 export default function LearnPage() {
-  const { walletAddress, isConnected } = useWeb3();
+  const { walletAddress, isConnected, contracts } = useWeb3();
   const [courses, setCourses] = useState<Course[]>([]);
   const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
@@ -351,33 +351,179 @@ export default function LearnPage() {
   // Fetch courses
   useEffect(() => {
     const loadCourses = async () => {
-      // In a real app, this would fetch from the blockchain or API
-      // For now, use mock data
+      // Start with a copy of mock courses
+      let allCourses = [...mockCourses];
       
-      // Check local storage for purchased courses
-      const purchasedCoursesString = localStorage.getItem('purchasedCourses');
-      let purchasedCourses: string[] = [];
-      
-      if (purchasedCoursesString) {
-        try {
-          purchasedCourses = JSON.parse(purchasedCoursesString);
-        } catch (e) {
-          console.error('Error parsing purchased courses:', e);
+      try {
+        // Check for purchased courses in local storage
+        const purchasedCoursesString = localStorage.getItem('purchasedCourses');
+        let purchasedCourses: string[] = [];
+        
+        if (purchasedCoursesString) {
+          try {
+            purchasedCourses = JSON.parse(purchasedCoursesString);
+          } catch (e) {
+            console.error('Error parsing purchased courses:', e);
+          }
         }
+        
+        // If contracts are available, fetch courses from blockchain
+        if (contracts && contracts.courseFactory) {
+          try {
+            console.log("Attempting to fetch courses from blockchain");
+            
+            // Get some courses from the blockchain - we'll use a simpler approach to avoid type errors
+            const blockchainCourses: Course[] = [];
+            
+            // Try to fetch a limited number of courses (10) starting from ID 1
+            // This avoids the need to know the total count
+            for (let i = 1; i <= 10; i++) {
+              try {
+                // Check if this courseFactory instance has getCourse method
+                if (typeof contracts.courseFactory.getCourse !== 'function') {
+                  console.warn("getCourse method not found on courseFactory contract");
+                  break;
+                }
+                
+                // Try to get the course - this will throw if course doesn't exist
+                const courseData = await contracts.courseFactory.getCourse(i);
+                
+                // Skip if we didn't get valid course data
+                if (!courseData || !courseData.title) {
+                  console.log(`No valid data for course ${i}`);
+                  continue;
+                }
+                
+                // Check if the course is active (if that field exists)
+                if (courseData.isActive === false) {
+                  console.log(`Course ${i} is not active, skipping`);
+                  continue;
+                }
+                
+                console.log(`Successfully fetched course ${i}: ${courseData.title}`);
+                
+                // Format price
+                let priceFormatted = '0';
+                if (courseData.price) {
+                  try {
+                    const priceStr = courseData.price.toString();
+                    const priceValue = priceStr; // 保留为string类型
+                    priceFormatted = (Number(priceValue) / 1e18).toFixed(2);
+                  } catch (e) {
+                    console.error(`Error formatting price for course ${i}:`, e);
+                  }
+                }
+                
+                // Format creator address
+                const creator = courseData.creator || '';
+                const formattedCreator = creator.length > 10 
+                  ? `${creator.substring(0, 6)}...${creator.substring(creator.length - 4)}`
+                  : creator;
+                
+                // Get duration
+                let durationString = '4 weeks';
+                try {
+                  if (courseData.duration) {
+                    const durationHours = parseInt(courseData.duration.toString());
+                    const durationWeeks = Math.max(1, Math.ceil(durationHours / 40));
+                    durationString = `${durationWeeks} week${durationWeeks !== 1 ? 's' : ''}`;
+                  }
+                } catch (e) {
+                  console.error(`Error formatting duration for course ${i}:`, e);
+                }
+                
+                // Create default course videos
+                const courseVideos: CourseVideo[] = [];
+                for (let j = 0; j < 3; j++) {
+                  courseVideos.push({
+                    id: `${i}-${j}`,
+                    name: `Module ${j + 1}`,
+                    description: 'Blockchain course content',
+                    duration: `${Math.floor(Math.random() * 30) + 10}:00`,
+                    locked: true
+                  });
+                }
+                
+                // Create course object
+                const courseObj: Course = {
+                  id: i.toString(),
+                  title: courseData.title || 'Unnamed Course',
+                  symbol: `CT${i}`,
+                  description: courseData.description || 'No description available',
+                  category: 'blockchain',
+                  level: 'Beginner',
+                  duration: durationString,
+                  instructor: formattedCreator,
+                  students: 0, // We might not be able to get this easily
+                  price: `${priceFormatted} EDU`,
+                  rating: (Math.random() * 2 + 3).toFixed(1), // Random rating between 3.0-5.0
+                  image: `https://source.unsplash.com/random/400x300?blockchain=${i}`,
+                  isPurchased: purchasedCourses.includes(i.toString()),
+                  progress: 0,
+                  videos: courseVideos
+                };
+                
+                blockchainCourses.push(courseObj);
+              } catch (error) {
+                console.error(`Error fetching course ${i}:`, error);
+                // If we get an error, it might be because we've reached the end of courses
+                if (i > 1) break;
+              }
+            }
+            
+            // If we have blockchain courses, add them to our course list
+            if (blockchainCourses.length > 0) {
+              console.log(`Successfully loaded ${blockchainCourses.length} courses from blockchain`);
+              // Add blockchain courses first, then mock courses
+              allCourses = [...blockchainCourses, ...mockCourses];
+            } else {
+              console.log("No courses found on blockchain, using mock data");
+            }
+          } catch (error) {
+            console.error("Error in blockchain course fetching process:", error);
+          }
+        } else {
+          console.log("Course contract not available, using mock data only");
+        }
+        
+        // Update purchased status for mock courses
+        allCourses = allCourses.map(course => ({
+          ...course,
+          isPurchased: purchasedCourses.includes(course.id)
+        }));
+        
+        setCourses(allCourses);
+        setFilteredCourses(allCourses);
+      } catch (error) {
+        console.error('Error loading courses:', error);
+        toast.error('Failed to load courses');
+        
+        // Fall back to mock data with purchased status
+        const coursesWithPurchaseStatus = mockCourses.map(course => {
+          const purchasedCoursesString = localStorage.getItem('purchasedCourses');
+          let purchasedCourses: string[] = [];
+          
+          if (purchasedCoursesString) {
+            try {
+              purchasedCourses = JSON.parse(purchasedCoursesString);
+            } catch (e) {
+              console.error('Error parsing purchased courses:', e);
+            }
+          }
+          
+          return {
+            ...course,
+            isPurchased: purchasedCourses.includes(course.id)
+          };
+        });
+        
+        setCourses(coursesWithPurchaseStatus);
+        setFilteredCourses(coursesWithPurchaseStatus);
       }
-      
-      // Mark courses as purchased if in local storage
-      const coursesWithPurchaseStatus = mockCourses.map(course => ({
-        ...course,
-        isPurchased: purchasedCourses.includes(course.id)
-      }));
-      
-      setCourses(coursesWithPurchaseStatus);
-      setFilteredCourses(coursesWithPurchaseStatus);
     };
     
     loadCourses();
-  }, []);
+  }, [contracts]);
   
   // Handle purchasing a course
   const handlePurchase = async (courseId: string) => {
@@ -399,14 +545,124 @@ export default function LearnPage() {
       setPurchasing(true);
       setPurchaseError(null);
       
-      // In a real app, this would involve a blockchain transaction
-      // For this demo, we'll simulate it
+      // In a real world scenario, this would involve blockchain transactions
+      
+      if (contracts?.learningManager) {
+        try {
+          toast.loading('Processing enrollment transaction...');
+          
+          // Parse course price from string
+          let priceInWei = '0';
+          try {
+            // Remove " EDU" suffix and convert to wei
+            const priceStr = course.price.replace(' EDU', '');
+            const priceEth = parseFloat(priceStr);
+            priceInWei = Math.floor(priceEth * 1e18).toString();
+          } catch (e) {
+            console.error("Error parsing price:", e);
+            throw new Error("Invalid price format");
+          }
+          
+          console.log(`Attempting to enroll in course ${courseId} with price ${priceInWei} wei`);
+          
+          // Safely check if the contract has the enrollCourse method
+          if (typeof contracts.learningManager.enrollCourse !== 'function') {
+            console.error("enrollCourse method not found on learningManager contract");
+            throw new Error("Contract method not available");
+          }
+          
+          // Call the enrollCourse function with the appropriate value
+          const txPromise = contracts.learningManager.enrollCourse(
+            courseId,
+            { value: priceInWei }
+          );
+          
+          // Handle transaction safely
+          console.log("Transaction initiated");
+          toast.loading(`Transaction pending...`);
+          
+          // Wait for the transaction to be mined
+          txPromise.then(tx => {
+            console.log("Transaction sent:", tx);
+            
+            // Check if transaction has a wait method
+            if (tx && typeof tx.wait === 'function') {
+              return tx.wait();
+            } else {
+              console.log("Transaction object doesn't have wait method");
+              return null;
+            }
+          }).then(receipt => {
+            console.log("Transaction confirmed:", receipt);
+            toast.dismiss();
+            toast.success("Successfully enrolled in the course!");
+            
+            // Update course purchase status
+            const updatedCourses = courses.map(c => 
+              c.id === courseId ? { ...c, isPurchased: true } : c
+            );
+            
+            setCourses(updatedCourses);
+            setFilteredCourses(updatedCourses);
+            
+            // Store purchased course in localStorage
+            const purchasedCoursesString = localStorage.getItem('purchasedCourses');
+            let purchasedCourses: string[] = [];
+            
+            if (purchasedCoursesString) {
+              try {
+                purchasedCourses = JSON.parse(purchasedCoursesString);
+              } catch (e) {
+                console.error('Error parsing purchased courses:', e);
+              }
+            }
+            
+            if (!purchasedCourses.includes(courseId)) {
+              purchasedCourses.push(courseId);
+              localStorage.setItem('purchasedCourses', JSON.stringify(purchasedCourses));
+            }
+            
+            setPurchaseSuccess(true);
+            
+            // Reset success status after 3 seconds
+            setTimeout(() => {
+              setPurchaseSuccess(false);
+            }, 3000);
+          }).catch(error => {
+            console.error("Transaction error:", error);
+            toast.dismiss();
+            
+            // Check for user rejection
+            if (error.code === 4001) {
+              toast.error("Transaction rejected by user");
+            } else {
+              toast.error(`Failed to enroll: ${error.message || "Unknown error"}`);
+            }
+            
+            throw error;
+          });
+          
+          // Wait for the promise chain to complete before returning
+          await new Promise(resolve => setTimeout(resolve, 500));
+          return;
+        } catch (error: any) {
+          console.error("Blockchain enrollment error:", error);
+          toast.dismiss();
+          
+          if (error.code === 4001) {
+            toast.error("Transaction rejected by user");
+          } else {
+            toast.error(`Failed to enroll: ${error.message || "Unknown error"}`);
+          }
+          
+          throw error;
+        }
+      }
+      
+      // Fallback to simulated purchase (for mock data or if contracts unavailable)
+      console.log("Using simulated enrollment (contract not available)");
       
       // Simulate contract interaction
-      // const tx = await purchaseCourse(courseId, course.price);
-      // await tx.wait();
-      
-      // Simulate delay
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Update course purchase status in state
@@ -506,76 +762,85 @@ export default function LearnPage() {
           <p className="text-xl text-gray-400">Discover courses, purchase tokens, and start learning</p>
         </div>
         
-        {/* Search and filter */}
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row gap-4 mb-4">
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                placeholder="Search courses..."
-                className="w-full bg-gray-800/50 border border-gray-700 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <MagnifyingGlassIcon className="absolute left-3 top-3.5 h-5 w-5 text-gray-500" />
+        {/* 搜索和过滤器部分 - 仅在未选择课程时显示 */}
+        {!activeCourse && (
+          <div className="mb-8">
+            <div className="flex flex-col md:flex-row gap-4 mb-4">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  placeholder="Search courses..."
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <MagnifyingGlassIcon className="absolute left-3 top-3.5 h-5 w-5 text-gray-500" />
+              </div>
+              
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className="px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 flex items-center justify-center md:w-auto"
+              >
+                <FunnelIcon className="h-5 w-5 mr-2" />
+                <span>Filter</span>
+              </button>
             </div>
             
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 flex items-center justify-center md:w-auto"
-            >
-              <FunnelIcon className="h-5 w-5 mr-2" />
-              <span>Filter</span>
-            </button>
+            {/* 过滤器 */}
+            {showFilters && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="bg-gray-800/30 backdrop-blur-sm border border-gray-700 rounded-lg p-4 mb-4"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                    <select
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                    >
+                      <option value="all">All Categories</option>
+                      <option value="blockchain">Blockchain</option>
+                      <option value="development">Development</option>
+                      <option value="defi">DeFi</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Level</label>
+                    <select
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      value={levelFilter}
+                      onChange={(e) => setLevelFilter(e.target.value)}
+                    >
+                      <option value="all">All Levels</option>
+                      <option value="beginner">Beginner</option>
+                      <option value="intermediate">Intermediate</option>
+                      <option value="advanced">Advanced</option>
+                    </select>
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </div>
-          
-          {/* Filters */}
-          {showFilters && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-gray-800/30 backdrop-blur-sm border border-gray-700 rounded-lg p-4 mb-4"
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
-                  <select
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                  >
-                    <option value="all">All Categories</option>
-                    <option value="blockchain">Blockchain</option>
-                    <option value="development">Development</option>
-                    <option value="defi">DeFi</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Level</label>
-                  <select
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    value={levelFilter}
-                    onChange={(e) => setLevelFilter(e.target.value)}
-                  >
-                    <option value="all">All Levels</option>
-                    <option value="beginner">Beginner</option>
-                    <option value="intermediate">Intermediate</option>
-                    <option value="advanced">Advanced</option>
-                  </select>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </div>
+        )}
         
-        {/* Course listing or course details */}
+        {/* 完全互斥的课程详情或课程列表 */}
         {activeCourse ? (
+          // 课程详情视图
           <div className="glass rounded-xl overflow-hidden">
             <div className="p-6 border-b border-gray-700 flex justify-between items-center">
               <button
-                onClick={() => setActiveCourse(null)}
+                onClick={() => {
+                  // 重置激活课程状态
+                  setActiveCourse(null);
+                  // 重置购买状态
+                  setPurchaseSuccess(false);
+                  setPurchasing(false);
+                }}
                 className="px-4 py-2 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors flex items-center"
               >
                 <ChevronLeftIcon className="h-5 w-5 mr-1" />
@@ -813,6 +1078,7 @@ export default function LearnPage() {
             </div>
           </div>
         ) : (
+          // 课程列表视图 - 仅当没有活动课程时显示
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCourses.length > 0 ? (
               filteredCourses.map(course => (

@@ -202,9 +202,59 @@ export default function LiquidityPage() {
   useEffect(() => {
     // Simulate loading data
     const timer = setTimeout(() => {
-      setTokens(mockCourseTokens);
-      setLiquidityPools(mockLiquidityPools);
-      setUserLiquidity(mockUserLiquidity);
+      // 尝试从本地存储加载创建的课程代币
+      try {
+        // 获取本地存储中的代币数据
+        const createdLiquidityTokensJson = localStorage.getItem('createdLiquidityTokens');
+        
+        // 如果有创建的课程代币数据，解析并合并
+        let allTokens = [...mockCourseTokens];
+        let allPools = [...mockLiquidityPools];
+        
+        if (createdLiquidityTokensJson) {
+          const createdLiquidityTokens = JSON.parse(createdLiquidityTokensJson);
+          
+          // 确保每个创建的代币有唯一的 ID
+          const existingIds = new Set(allTokens.map(token => token.id));
+          
+          // 将创建的代币添加到代币列表
+          createdLiquidityTokens.forEach((token: CourseToken) => {
+            // 确保不会重复添加相同 ID 的代币
+            if (!existingIds.has(token.id)) {
+              allTokens.push(token);
+              
+              // 为每个新代币创建对应的流动性池
+              const newPool: LiquidityPool = {
+                id: token.id,
+                token: token,
+                tokenAmount: token.poolSize || 1000,
+                eduAmount: (token.poolSize || 1000) * token.price,
+                totalLiquidity: (token.poolSize || 1000) * token.price * 2,
+                apr: token.apr || 15,
+                volume24h: token.volume24h || 0,
+                myShare: (token.myLiquidity || 0) / (token.poolSize || 1) * 100,
+                createdAt: new Date().toISOString()
+              };
+              
+              allPools.push(newPool);
+              existingIds.add(token.id);
+            }
+          });
+          
+          console.log("已加载创建的课程代币:", createdLiquidityTokens.length);
+        }
+        
+        setTokens(allTokens);
+        setLiquidityPools(allPools);
+        setUserLiquidity(mockUserLiquidity);
+      } catch (error) {
+        console.error("加载创建的课程代币失败:", error);
+        // 如果出错，至少加载模拟数据
+        setTokens(mockCourseTokens);
+        setLiquidityPools(mockLiquidityPools);
+        setUserLiquidity(mockUserLiquidity);
+      }
+      
       setIsLoading(false);
     }, 1000);
     
