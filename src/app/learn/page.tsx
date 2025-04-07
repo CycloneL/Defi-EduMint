@@ -351,8 +351,11 @@ export default function LearnPage() {
   // Fetch courses
   useEffect(() => {
     const loadCourses = async () => {
-      // Start with a copy of mock courses
-      let allCourses = [...mockCourses];
+      // Start with a copy of mock courses and add prefix to ensure unique IDs
+      let allCourses = mockCourses.map(course => ({
+        ...course,
+        id: `mock-${course.id}` // 添加前缀确保模拟课程ID唯一
+      }));
       
       try {
         // Check for purchased courses in local storage
@@ -386,7 +389,7 @@ export default function LearnPage() {
                 }
                 
                 // Try to get the course - this will throw if course doesn't exist
-                const courseData = await contracts.courseFactory.getCourse(i);
+                const courseData = await contracts.courseFactory.getCourse(i.toString());
                 
                 // Skip if we didn't get valid course data
                 if (!courseData || !courseData.title) {
@@ -436,7 +439,7 @@ export default function LearnPage() {
                 const courseVideos: CourseVideo[] = [];
                 for (let j = 0; j < 3; j++) {
                   courseVideos.push({
-                    id: `${i}-${j}`,
+                    id: `bc-${i}-${j}`, // 添加前缀确保视频ID唯一
                     name: `Module ${j + 1}`,
                     description: 'Blockchain course content',
                     duration: `${Math.floor(Math.random() * 30) + 10}:00`,
@@ -444,9 +447,9 @@ export default function LearnPage() {
                   });
                 }
                 
-                // Create course object
+                // Create course object with blockchain prefix for ID
                 const courseObj: Course = {
-                  id: i.toString(),
+                  id: `bc-${i}`, // 为区块链课程添加前缀，确保ID唯一
                   title: courseData.title || 'Unnamed Course',
                   symbol: `CT${i}`,
                   description: courseData.description || 'No description available',
@@ -458,7 +461,7 @@ export default function LearnPage() {
                   price: `${priceFormatted} EDU`,
                   rating: (Math.random() * 2 + 3).toFixed(1), // Random rating between 3.0-5.0
                   image: `https://source.unsplash.com/random/400x300?blockchain=${i}`,
-                  isPurchased: purchasedCourses.includes(i.toString()),
+                  isPurchased: purchasedCourses.includes(`bc-${i}`), // 更新购买状态的检查方式
                   progress: 0,
                   videos: courseVideos
                 };
@@ -474,10 +477,11 @@ export default function LearnPage() {
             // If we have blockchain courses, add them to our course list
             if (blockchainCourses.length > 0) {
               console.log(`Successfully loaded ${blockchainCourses.length} courses from blockchain`);
-              // Add blockchain courses first, then mock courses
-              allCourses = [...blockchainCourses, ...mockCourses];
+              // 区块链课程和模拟课程合并，现在它们都有唯一的ID前缀
+              allCourses = [...blockchainCourses, ...allCourses];
+              console.log("Combined courses:", allCourses.map(c => c.id));
             } else {
-              console.log("No courses found on blockchain, using mock data");
+              console.log("No courses found on blockchain, using mock data only");
             }
           } catch (error) {
             console.error("Error in blockchain course fetching process:", error);
@@ -486,11 +490,19 @@ export default function LearnPage() {
           console.log("Course contract not available, using mock data only");
         }
         
-        // Update purchased status for mock courses
-        allCourses = allCourses.map(course => ({
-          ...course,
-          isPurchased: purchasedCourses.includes(course.id)
-        }));
+        // Update purchased status for courses - 更新检查逻辑以适应新的ID格式
+        allCourses = allCourses.map(course => {
+          // 处理旧格式的purchasedCourses，将课程ID提取出来进行比较
+          const courseIdWithoutPrefix = course.id.includes('-') 
+            ? course.id.split('-')[1] 
+            : course.id;
+            
+          return {
+            ...course,
+            isPurchased: purchasedCourses.includes(course.id) || 
+                         purchasedCourses.includes(courseIdWithoutPrefix)
+          };
+        });
         
         setCourses(allCourses);
         setFilteredCourses(allCourses);
@@ -498,7 +510,7 @@ export default function LearnPage() {
         console.error('Error loading courses:', error);
         toast.error('Failed to load courses');
         
-        // Fall back to mock data with purchased status
+        // Fall back to mock data with purchased status and unique IDs
         const coursesWithPurchaseStatus = mockCourses.map(course => {
           const purchasedCoursesString = localStorage.getItem('purchasedCourses');
           let purchasedCourses: string[] = [];
@@ -513,6 +525,7 @@ export default function LearnPage() {
           
           return {
             ...course,
+            id: `mock-${course.id}`, // 确保ID唯一
             isPurchased: purchasedCourses.includes(course.id)
           };
         });
@@ -583,15 +596,8 @@ export default function LearnPage() {
           
           // Wait for the transaction to be mined
           txPromise.then(tx => {
-            console.log("Transaction sent:", tx);
-            
-            // Check if transaction has a wait method
-            if (tx && typeof tx.wait === 'function') {
-              return tx.wait();
-            } else {
-              console.log("Transaction object doesn't have wait method");
-              return null;
-            }
+            console.log("Transaction submitted:", tx);
+            return Promise.resolve(tx);
           }).then(receipt => {
             console.log("Transaction confirmed:", receipt);
             toast.dismiss();

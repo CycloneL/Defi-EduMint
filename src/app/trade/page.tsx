@@ -440,7 +440,7 @@ export default function Trade() {
     }
     
     // 检查并更新EDU余额（每次交换扣除1 EDU作为交易费用）
-    const swapFee = "10"; // 交换代币需要1 EDU作为交易费
+    const swapFee = "1"; // 交换代币需要1 EDU作为交易费
     const currentBalance = localStorage.getItem('eduBalance');
     if (!currentBalance || parseFloat(currentBalance) < parseFloat(swapFee)) {
       toast.error(`交换代币需要${swapFee} EDU作为交易费，您的余额不足`);

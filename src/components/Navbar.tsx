@@ -37,21 +37,21 @@ interface WalletProvider {
 // Navigation menu data in English
 const navItems: NavItem[] = [
   {
-    label: "Course Creators",
+    label: "        Create",
     dropdown: [
       { label: "Create Course", href: "/create" },
       { label: "My Creations", href: "/my-courses" },
     ],
   },
   {
-    label: "Learners",
+    label: "        Learn",
     dropdown: [
       { label: "Learning Center", href: "/learn" },
       { label: "My Courses", href: "/my-learning" },
     ],
   },
   {
-    label: "Traders",
+    label: "        Trade",
     dropdown: [
       { label: "Exchange", href: "/trade" },
       { label: "Send", href: "/send" },
@@ -59,7 +59,7 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    label: "Explore",
+    label: "        Explore",
     dropdown: [
       { label: "Liquidity Providing", href: "/liquidity" },
       { label: "EDU Mining", href: "/mining" },
