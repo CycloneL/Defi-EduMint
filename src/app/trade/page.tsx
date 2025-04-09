@@ -25,7 +25,9 @@ import {
   Title,
   Tooltip,
   Legend,
-  Filler
+  Filler,
+  BarController,
+  LineController
 } from 'chart.js';
 import Image from 'next/image';
 import { toast } from 'react-hot-toast';
@@ -42,7 +44,9 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  Filler
+  Filler,
+  BarController,
+  LineController
 );
 
 // Token interface

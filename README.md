@@ -35,77 +35,77 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-# OpenCampus EDU测试网集成指南
+# OpenCampus EDU Testnet Integration Guide
 
-本项目已集成OpenCampus EDU测试网和ZeroDev钱包，支持账户抽象和链上交互。
+This project has integrated OpenCampus EDU testnet and ZeroDev wallet, supporting account abstraction and on-chain interactions.
 
-## 重要信息
+## Important Information
 
-- **网络名称**: EDU Chain Testnet
+- **Network Name**: EDU Chain Testnet
 - **RPC**: https://rpc.open-campus-codex.gelato.digital
-- **链ID**: 656476
-- **货币符号**: EDU
-- **区块链浏览器**: https://opencampus-codex.blockscout.com/
-- **ZeroDev项目ID**: 9ed2eaaf-819d-4079-8bbd-698bb08461e6
+- **Chain ID**: 656476
+- **Currency Symbol**: EDU
+- **Blockchain Explorer**: https://opencampus-codex.blockscout.com/
+- **ZeroDev Project ID**: 9ed2eaaf-819d-4079-8bbd-698bb08461e6
 
-## 如何连接钱包
+## How to Connect Wallet
 
-项目支持两种连接方式：
+The project supports two connection methods:
 
-1. **OCID登录**: 通过OpenCampus ID进行OAuth登录，会自动创建兼容EDU测试网的智能合约钱包
-2. **Passkey连接**: 使用WebAuthn/Passkey创建无需私钥的钱包
+1. **OCID Login**: Login through OpenCampus ID OAuth, which automatically creates a smart contract wallet compatible with EDU testnet
+2. **Passkey Connection**: Use WebAuthn/Passkey to create a wallet without requiring private keys
 
-连接钱包后，您可以:
-- 查看钱包地址
-- 签名消息
-- 发送交易
-- 与智能合约交互
+After connecting your wallet, you can:
+- View wallet address
+- Sign messages
+- Send transactions
+- Interact with smart contracts
 
-## 如何部署智能合约
+## How to Deploy Smart Contracts
 
-1. 复制 `blockchain/.env.example` 到 `blockchain/.env`
-2. 在 `.env` 文件中填入您的部署私钥
-3. 使用以下命令部署到EDU测试网:
+1. Copy `blockchain/.env.example` to `blockchain/.env`
+2. Fill in your deployment private key in the `.env` file
+3. Use the following command to deploy to EDU testnet:
 
 ```bash
 cd blockchain
 npx hardhat run scripts/deploy-edu.js --network opencampus
 ```
 
-## 钱包功能
+## Wallet Features
 
-项目提供以下钱包功能：
+The project provides the following wallet features:
 
-1. **签名消息**
+1. **Sign Messages**
 ```javascript
 const { signMessage } = useZeroDev();
 const signature = await signMessage("Hello, EDU Testnet!");
 ```
 
-2. **发送交易**
+2. **Send Transactions**
 ```javascript
 const { sendTransaction } = useZeroDev();
 const txHash = await sendTransaction({
   to: "0xRecipientAddress",
   value: "1000000000000000", // wei
-  data: "0x" // 可选数据
+  data: "0x" // optional data
 });
 ```
 
-3. **合约交互**
+3. **Contract Interaction**
 ```javascript
-// 示例: 与合约交互
+// Example: Interact with contracts
 const contractAddress = "0xYourContractAddress";
-const contractABI = [...]; // 合约ABI
+const contractABI = [...]; // Contract ABI
 
-// 使用ethers.js
+// Using ethers.js
 const { provider } = useZeroDev();
 const contract = new ethers.Contract(contractAddress, contractABI, provider);
 
-// 读取合约数据
+// Read contract data
 const data = await contract.someViewFunction();
 
-// 写入合约数据 (需要签名)
+// Write contract data (requires signature)
 const { kernelClient } = useZeroDev();
 const tx = await kernelClient.sendTransaction({
   to: contractAddress,
@@ -113,15 +113,15 @@ const tx = await kernelClient.sendTransaction({
 });
 ```
 
-## 技术架构
+## Technical Architecture
 
-本项目整合了以下技术:
+This project integrates the following technologies:
 
-1. **ZeroDev SDK**: 提供账户抽象功能
-2. **OpenCampus OAuth (OCID)**: 实现无缝登录体验
-3. **Viem/Ethers.js**: 与区块链交互
-4. **Hardhat**: 智能合约开发框架
+1. **ZeroDev SDK**: Provides account abstraction functionality
+2. **OpenCampus OAuth (OCID)**: Implements seamless login experience
+3. **Viem/Ethers.js**: Interacts with blockchain
+4. **Hardhat**: Smart contract development framework
 
-如有任何问题，请参阅官方文档:
-- [OpenCampus开发文档](https://devdocs.opencampus.xyz/services/)
-- [ZeroDev文档](https://docs.zerodev.app/)
+For any questions, please refer to the official documentation:
+- [OpenCampus Developer Documentation](https://devdocs.opencampus.xyz/services/)
+- [ZeroDev Documentation](https://docs.zerodev.app/)

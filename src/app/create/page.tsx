@@ -83,6 +83,15 @@ interface TokenIcon {
   preview: string;
 }
 
+// Learning material interface
+interface LearningMaterial {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  file: File;
+}
+
 export default function CreatePage() {
   const { walletAddress, isConnected } = useWeb3();
   const router = useRouter();
@@ -109,9 +118,11 @@ export default function CreatePage() {
   const [tokenIcon, setTokenIcon] = useState<TokenIcon | null>(null);
   const [creatorLevel, setCreatorLevel] = useState('beginner');
   const [stakingAmount, setStakingAmount] = useState(creatorLevels[0].stakingAmount);
+  const [materials, setMaterials] = useState<LearningMaterial[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const tokenIconInputRef = useRef<HTMLInputElement>(null);
+  const materialInputRef = useRef<HTMLInputElement>(null);
   
   // Auto-generate token name and symbol
   useEffect(() => {
@@ -219,6 +230,50 @@ export default function CreatePage() {
       };
       reader.readAsDataURL(file);
     }
+  };
+  
+  // Handle learning material upload
+  const handleMaterialUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) {
+      return;
+    }
+    
+    const file = e.target.files[0];
+    
+    // Check file size (limit to 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('Material size must be less than 50MB');
+      return;
+    }
+    
+    // Create a unique id
+    const materialId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    
+    // Add to materials list
+    setMaterials([...materials, {
+      id: materialId,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      file: file
+    }]);
+    
+    // Reset input
+    e.target.value = '';
+    toast.success('Learning material added successfully');
+  };
+  
+  // Remove material
+  const removeMaterial = (materialId: string) => {
+    setMaterials(materials.filter(material => material.id !== materialId));
+    toast.success('Learning material removed');
+  };
+
+  // Format file size
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
   
   // Create course
@@ -516,7 +571,7 @@ export default function CreatePage() {
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">Course Price (ETH)</label>
+                      <label className="block text-sm font-medium text-gray-400 mb-1">Course Price (EDU)</label>
                       <div className="relative">
                         <input
                           type="number"
@@ -761,22 +816,65 @@ export default function CreatePage() {
                         <button
                           type="button"
                           className="px-4 py-2 rounded-lg border border-indigo-500 text-indigo-400 hover:bg-indigo-500/10"
-                          onClick={() => {
-                            // Implementation for adding learning material
-                          }}
+                          onClick={() => materialInputRef.current?.click()}
                         >
                           <span className="flex items-center">
                             <DocumentIcon className="h-5 w-5 mr-1" />
                             Add Learning Material
                           </span>
                         </button>
+                        <input
+                          type="file"
+                          className="hidden"
+                          ref={materialInputRef}
+                          onChange={handleMaterialUpload}
+                        />
                       </div>
+                      
+                      {materials.length > 0 && (
+                        <div className="mt-4 text-sm text-gray-400">
+                          {materials.length} material{materials.length > 1 ? 's' : ''} added
+                        </div>
+                      )}
                     </div>
                   </div>
                   
                   {/* Materials list */}
                   <div className="space-y-3">
-                    {/* Implementation for displaying learning materials */}
+                    {materials.length === 0 ? (
+                      <p className="text-center text-gray-500 py-6">No learning materials yet. Add materials like PDFs, presentations, or documents to enhance your course.</p>
+                    ) : (
+                      materials.map((material) => (
+                        <div key={material.id} className="glass rounded-lg p-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center">
+                              <div className="bg-indigo-900/30 w-10 h-10 rounded-lg flex items-center justify-center mr-3">
+                                <DocumentTextIcon className="h-5 w-5 text-indigo-400" />
+                              </div>
+                              <div>
+                                <h4 className="font-medium">{material.name}</h4>
+                                <div className="flex items-center text-xs text-gray-500 mt-1">
+                                  <span>
+                                    {formatFileSize(material.size)}
+                                  </span>
+                                  <span className="mx-2">•</span>
+                                  <span>
+                                    {material.type.split('/')[1]?.toUpperCase() || material.type}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="text-gray-500 hover:text-red-400"
+                              onClick={() => removeMaterial(material.id)}
+                            >
+                              <XMarkIcon className="h-5 w-5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                   
                   <div className="flex justify-between">
@@ -838,7 +936,7 @@ export default function CreatePage() {
                           </div>
                           <div className="flex items-center">
                             <CurrencyDollarIcon className="h-5 w-5 text-indigo-400 mr-2" />
-                            <span>{price ? `${price} ETH` : 'Price not set'}</span>
+                            <span>{price ? `${price} EDU` : 'Price not set'}</span>
                           </div>
                           <div className="flex items-center">
                             <VideoCameraIcon className="h-5 w-5 text-indigo-400 mr-2" />
@@ -878,7 +976,23 @@ export default function CreatePage() {
                   <div>
                     <h4 className="font-medium mb-3">Learning Materials</h4>
                     <div className="glass rounded-lg p-4">
-                      {/* Implementation for displaying learning materials */}
+                      {materials.length === 0 ? (
+                        <p className="text-center text-gray-500 py-4">No learning materials added.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {materials.map((material, index) => (
+                            <div key={material.id} className="flex items-center py-2 border-b border-gray-700 last:border-0">
+                              <div className="w-8 h-8 bg-indigo-900/30 rounded-full flex items-center justify-center mr-3">
+                                <DocumentTextIcon className="h-4 w-4 text-indigo-400" />
+                              </div>
+                              <div className="flex-1">
+                                <h5 className="font-medium">{material.name}</h5>
+                                <p className="text-sm text-gray-400">{formatFileSize(material.size)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   
